@@ -11747,6 +11747,17 @@
         "unbound": "Let {{name}} handle your questions to the official @askmycindy bot.",
         "managed": "A teammate handles X questions. Change the assignment in that teammate’s message platform settings.",
         "riskBody": "X questions use the teammate’s shared memory, tools and workspace, and replies are public. Do not use X for private information. The X thread does not directly use your private chat history."
+      },
+      "dchat": {
+        "summary": "In development. Only saves a binding draft for this teammate; does not read or send messages.",
+        "accountId": "D-Chat Account ID",
+        "ownerId": "Authorized Sender ID",
+        "chatId": "Private Chat ID",
+        "save": "Save Binding Draft",
+        "saved": "Binding draft saved",
+        "failed": "Could not read or save the binding draft",
+        "platform-unsupported": "Native D-Chat access requires macOS. Drafts can be saved here.",
+        "reader-unavailable": "Native message reading is not connected. Saving a draft does not enable execution."
       }
     },
     "voiceMode": {

@@ -1,3 +1,4 @@
+import { registerDchatConnectionDraftIpc } from './dchat/connectionDraftHost';
 import { wireIMessageOrchestrator } from './imessage/adapter';
 /**
  * main/im/index.ts
@@ -135,6 +136,7 @@ import {
 
 /** 伙伴「消息平台」的 IPC: 连接增删 / 群聊 / 隐藏任务, 以及把个人 bot 移给伙伴。 */
 export function registerBotImConnectionIpc(): void {
+  registerDchatConnectionDraftIpc();
   registerBotImConnectionRuntimeIpc();
   registerBotImPersonalAdoptionIpc();
 }

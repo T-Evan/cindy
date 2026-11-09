@@ -11747,6 +11747,17 @@
         "unbound": "Lass {{name}} deine Fragen an den offiziellen Bot @askmycindy übernehmen.",
         "managed": "Ein Teammitglied übernimmt X-Fragen. Ändere die Zuweisung in den Nachrichtenplattform-Einstellungen dieses Teammitglieds.",
         "riskBody": "Fragen über X nutzen den gemeinsamen Speicher, die Tools und den Arbeitsbereich des Teammitglieds. Antworten sind öffentlich. Nutze X nicht für private Informationen. Der X-Thread greift nicht direkt auf deinen privaten Chatverlauf zu."
+      },
+      "dchat": {
+        "summary": "In Entwicklung. Speichere einen Verknüpfungsentwurf für dieses Teammitglied. Nachrichten werden weder gelesen noch gesendet.",
+        "accountId": "D-Chat-Konto-ID",
+        "ownerId": "ID Des Autorisierten Absenders",
+        "chatId": "ID Des Privaten Chats",
+        "save": "Verknüpfungsentwurf Speichern",
+        "saved": "Verknüpfungsentwurf gespeichert",
+        "failed": "Verknüpfungsentwurf konnte nicht gelesen oder gespeichert werden",
+        "platform-unsupported": "Der native D-Chat-Zugriff erfordert macOS. Entwürfe können hier gespeichert werden.",
+        "reader-unavailable": "Das native Lesen von Nachrichten ist nicht verbunden. Das Speichern eines Entwurfs aktiviert keine Ausführung."
       }
     },
     "voiceMode": {

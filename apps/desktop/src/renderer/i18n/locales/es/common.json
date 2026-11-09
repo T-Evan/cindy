@@ -11845,6 +11845,17 @@
         "unbound": "Deja que {{name}} atienda tus preguntas al bot oficial @askmycindy.",
         "managed": "Un compañero atiende las preguntas de X. Cambia la asignación en la configuración de plataformas de mensajes de ese compañero.",
         "riskBody": "Las preguntas de X usan la memoria compartida, las herramientas y el espacio de trabajo del compañero, y las respuestas son públicas. No uses X para información privada. El hilo de X no usa directamente tu historial de chat privado."
+      },
+      "dchat": {
+        "summary": "En desarrollo. Guarda un borrador de vinculación para este compañero. No se leen ni se envían mensajes.",
+        "accountId": "ID De La Cuenta De D-Chat",
+        "ownerId": "ID Del Remitente Autorizado",
+        "chatId": "ID De La Conversación Privada",
+        "save": "Guardar Borrador De Vinculación",
+        "saved": "Borrador de vinculación guardado",
+        "failed": "No se pudo leer o guardar el borrador de vinculación",
+        "platform-unsupported": "El acceso nativo a D-Chat requiere macOS. Aquí puedes guardar borradores.",
+        "reader-unavailable": "La lectura nativa de mensajes no está conectada. Guardar un borrador no habilita la ejecución."
       }
     },
     "voiceMode": {

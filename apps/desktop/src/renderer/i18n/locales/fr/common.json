@@ -11845,6 +11845,17 @@
         "unbound": "Laissez {{name}} traiter vos questions adressées au bot officiel @askmycindy.",
         "managed": "Un coéquipier traite les questions X. Modifiez l'attribution dans les paramètres de plateforme de messagerie de ce coéquipier.",
         "riskBody": "Les questions X utilisent la mémoire partagée, les outils et l'espace de travail du coéquipier, et les réponses sont publiques. N'utilisez pas X pour des informations privées. Le fil X n'utilise pas directement votre historique de conversation privé."
+      },
+      "dchat": {
+        "summary": "En développement. Enregistrez un brouillon de liaison pour ce coéquipier. Aucun message ne sera lu ni envoyé.",
+        "accountId": "ID Du Compte D-Chat",
+        "ownerId": "ID De L’Expéditeur Autorisé",
+        "chatId": "ID De Conversation Privée",
+        "save": "Enregistrer Le Brouillon De Liaison",
+        "saved": "Brouillon de liaison enregistré",
+        "failed": "Impossible de lire ou d’enregistrer le brouillon de liaison",
+        "platform-unsupported": "L’accès natif à D-Chat nécessite macOS. Vous pouvez enregistrer un brouillon ici.",
+        "reader-unavailable": "La lecture native des messages n’est pas connectée. Enregistrer un brouillon n’active pas l’exécution."
       }
     },
     "voiceMode": {

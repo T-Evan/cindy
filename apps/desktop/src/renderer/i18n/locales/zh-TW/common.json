@@ -11701,6 +11701,17 @@
         "unbound": "可將官方 @askmycindy 收到的你的提問交給 {{name}}。",
         "managed": "X 提問由夥伴處理。可在該夥伴的訊息平台設定中更改連結。",
         "riskBody": "X 提問會使用夥伴的共享記憶、能力和工作目錄，回答會公開。請勿透過 X 處理私人資訊。專線不會直接使用夥伴的私聊記錄。"
+      },
+      "dchat": {
+        "summary": "開發中。僅儲存此夥伴的綁定草稿，不讀取或傳送訊息。",
+        "accountId": "D-Chat 帳號 ID",
+        "ownerId": "授權發起人 ID",
+        "chatId": "私訊 ID",
+        "save": "儲存綁定草稿",
+        "saved": "綁定草稿已儲存",
+        "failed": "無法讀取或儲存綁定草稿",
+        "platform-unsupported": "原生 D-Chat 存取需要 macOS。目前可儲存綁定草稿。",
+        "reader-unavailable": "原生訊息讀取尚未連接，儲存草稿不會啟用執行。"
       }
     },
     "voiceMode": {

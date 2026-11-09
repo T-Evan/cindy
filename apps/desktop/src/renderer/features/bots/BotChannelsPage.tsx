@@ -1,3 +1,4 @@
+import { DchatConnectionDraft } from './DchatConnectionDraft';
 import { standardSessionRoute } from '@/lib/orcaSessionIdentity';
 /**
  * 伙伴设置 →「消息平台」: 这位伙伴自己的 IM 机器人。
@@ -128,6 +129,7 @@ export function BotChannelsPage({ bot }: { bot: BotProfile }) {
   const { payload, loading, apply } = useBotImConnections(im, target);
   const { confirm } = useConfirmDialog();
   const [adding, setAdding] = useState(false);
+  const [dchatExpanded, setDchatExpanded] = useState(false);
   const [wechatExpanded, setWechatExpanded] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
@@ -253,6 +255,13 @@ export function BotChannelsPage({ bot }: { bot: BotProfile }) {
           {t('bots.channels.empty', { name: bot.name })}
         </p>
       )}
+      {target.kind === 'local' && window.electronAPI?.dchatConnection ? <div>
+        <Button type="button" variant="secondary" size="md" aria-expanded={dchatExpanded}
+          onClick={() => setDchatExpanded(value => !value)}>D-Chat</Button>
+        <Collapse open={dchatExpanded} innerClassName="pt-3">
+          <DchatConnectionDraft key={bot.id} botId={bot.id} />
+        </Collapse>
+      </div> : null}
       <div>
         <Button type="button" variant="secondary" size="md" onClick={() => setAdding(true)}>
           <Plus size={14} aria-hidden />

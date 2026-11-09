@@ -11845,6 +11845,17 @@
         "unbound": "Permitir que {{name}} trate das suas perguntas ao bot oficial @askmycindy.",
         "managed": "Um colega trata das perguntas do X. Altere a atribuição nas definições de plataformas de mensagens desse colega.",
         "riskBody": "As perguntas do X usam a memória partilhada, as ferramentas e o espaço de trabalho do colega, e as respostas são públicas. Não use o X para informações privadas. O tópico do X não usa diretamente o seu histórico de conversas privadas."
+      },
+      "dchat": {
+        "summary": "Em desenvolvimento. Guarde um rascunho de associação para este colega. Não são lidas nem enviadas mensagens.",
+        "accountId": "ID Da Conta D-Chat",
+        "ownerId": "ID Do Remetente Autorizado",
+        "chatId": "ID Da Conversa Privada",
+        "save": "Guardar Rascunho De Associação",
+        "saved": "Rascunho de associação guardado",
+        "failed": "Não foi possível ler ou guardar o rascunho de associação",
+        "platform-unsupported": "O acesso nativo ao D-Chat requer macOS. Pode guardar rascunhos aqui.",
+        "reader-unavailable": "A leitura nativa de mensagens não está ligada. Guardar um rascunho não ativa a execução."
       }
     },
     "voiceMode": {

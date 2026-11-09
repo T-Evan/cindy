@@ -1,7 +1,8 @@
 # D-Chat native integration: implementation checkpoint
 
-Status: **WIP, not a usable Cindy D-Chat connection**. No production startup hook or
-settings/partner binding UI registers the new adapter yet. The transport modules
+Status: **WIP, not a usable Cindy D-Chat connection**. The local teammate settings
+now expose an explicitly inactive binding draft. No production native inlet or
+startup hook registers the transport for incoming messages. The transport modules
 are not evidence that real partner memory, skills, tools or permissions have run.
 
 ## Implemented boundaries
@@ -33,8 +34,9 @@ are not evidence that real partner memory, skills, tools or permissions have run
 
 ## Remaining before an end-user build
 
-1. Register connection storage/lifecycle in Desktop under the verified Cindy owner,
-   and implement the existing partner/settings entry and explicit chat selection.
+1. Promote the inactive owner-scoped binding draft into a verified native connection
+   lifecycle. The teammate settings entry saves draft identifiers only; it cannot
+   enable execution, accept messages, prove sender identity or select real chats.
 2. Finish the macOS local database reader with read-only SQLCipher access and
    in-memory key handling. The CLI reader does not establish equivalent access.
 3. Verify native chat membership, exact group invocation metadata and continuous
@@ -45,9 +47,9 @@ are not evidence that real partner memory, skills, tools or permissions have run
    rejects a second active input in the same lane; it is not a durable input queue.
 5. Complete cancellation, pending-input interaction and busy-lane handoff through
    the existing coordinator. Preserve shared approvals and plugin-output boundaries.
-6. Run Desktop related tests, lint, typecheck, package build and isolated mock
-   startup using the repository wrapper. A transport-only simulation does not
-   establish a running Cindy application.
+6. Complete isolated mock startup and product acceptance using the repository
+   wrapper. Typechecks, targeted tests, lint and a Linux package build have passed
+   at recorded checkpoints; they do not establish a running Cindy application.
 7. Build and verify the macOS artifact on a Mac. Linux output cannot serve as a
    macOS package. Verify the actual D-Chat clean-send capability independently.
 
@@ -101,3 +103,29 @@ The installed reference client's commit remains unavailable publicly. This publi
 checkout and Linux artifact are not that installed version and are not a Mac build.
 No real messages, account login, D-Chat patches, production partner configuration,
 production profile migrations or replacement of an existing Cindy instance occurred.
+
+## 恢复后补充实施记录
+
+伙伴设置的“消息平台”增加默认收起的 D-Chat 草稿入口，明确标注开发中。
+三个 ID 仅作为待核实的配置保存，不证明原生身份，不授予任何执行权限。
+存储复用 owner-scoped override、跨进程锁与原子替换，拒绝切号中的读写、
+不可用伙伴的新绑定和额外执行字段；已停用伙伴的旧草稿仍可删除。
+接口只对可信本机 Renderer 开放，没有接入设备互联白名单或手机；远程伙伴不显示本机草稿。
+没有新增数据库 migration，也没有把聊天正文写入配置。
+
+补充验证：
+
+- 草稿 handler 的 6 项单测通过，单文件实测 2.04 秒、测试体 9 毫秒。
+- 原有 IM 启动和伙伴消息平台的 29 项相关测试通过，40.11 秒；转换占 30 秒。
+- Desktop 类型检查、相关 ESLint、test-hygiene 通过。
+- 12 种语言的 key 对齐与术语门禁通过；全仓既有 i18n 警告 4,990 项，
+  待裁决术语告警 18 项，未通过弱化断言消除。
+- 新 UI 使用语义 token 和共享 FormField/Input/Button/Collapse。
+  布局与交互验证通过仓库 UI 检查工具单独记录；模拟宿主不能证明真实 IPC 落盘。
+- Linux 上将 Electron 当 Chromium 使用的尝试不能创建浏览器上下文，
+  返回 Target.createBrowserContext 错误；该尝试不计作 GUI 验收通过。
+
+原生读取、真实成员与召唤证据、连续分页、持久长任务跟进、完整待输入交互、
+Mac 包及实际伙伴记忆/技能/工具执行仍未完成。没有独立 reviewer 验收。
+最终构建、启动与截图结果以交付目录内的验收记录及原始日志为准，
+不得把可编译的传输模块或可保存的草稿当作已启用的 D-Chat 功能。

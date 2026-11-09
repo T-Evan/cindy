@@ -265,6 +265,10 @@ export interface ImChannelAdapter {
    * 只对 ambient 消息调用; 被召唤的消息从不经过这里。
    */
   ambientTurnGate?(event: IMMessageEvent): Promise<'proceed' | 'skip'>;
+  /** Fail closed when required channel context cannot be prepared. */
+  inputPreparationRequired?: boolean;
+  /** Native transport may require exact accepted execution provenance for output. */
+  acceptsAgentEvent?(sessionId: string, event: import('@cindy/maker-core').AgentEvent): boolean;
   prepareAgentTurnText?(event: IMMessageEvent): Promise<{
     agentText: string;
     contextSnapshot?: ImContextSnapshot;

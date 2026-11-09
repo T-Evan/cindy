@@ -1,4 +1,8 @@
-import { ipcMain } from 'electron';
+import { dialog, ipcMain } from 'electron';
+import { DchatCliReader, DchatSqlcipherReader } from '@cindy/im';
+import { createDchatSetupHandlers } from './connectionSetup';
+import { readDchatNativeBindings, writeDchatNativeBinding, dchatNativeStatus, reloadDchatNativeConnections } from './nativeRuntime';
+import type { DchatSetupPath } from '../../../shared/dchatConnection';
 import { eq } from 'drizzle-orm';
 import { getActiveAppSession, activeOwnerScopeKey, isAppSessionBoundaryPending } from '../../appSessionState';
 import { getDbClient } from '../../localDb/client/current';
@@ -53,10 +57,52 @@ const handlers = createDchatConnectionDraftHandlers({
     return row?.status === 'active';
   },
 });
+const setup = createDchatSetupHandlers({
+  scope: currentScope, platform: process.platform,
+  read: readDchatNativeBindings, write: writeDchatNativeBinding,
+  connected: dchatNativeStatus, reload: reloadDchatNativeConnections,
+  available: async botId => {
+    const [row] = await getDbClient().drizzle.select({ status: botProfiles.status })
+      .from(botProfiles).where(eq(botProfiles.id, botId)).limit(1);
+    return row?.status === 'active';
+  },
+  choose: async field => {
+    const result = await dialog.showOpenDialog({ properties: field === 'databaseRoot' ? ['openDirectory'] : ['openFile'] });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  },
+  verify: async (paths, chatId) => {
+    const identity = new DchatCliReader(paths.identityExecutable);
+    const reader = new DchatSqlcipherReader({ executable: paths.sqlcipherExecutable,
+      databaseRoot: paths.databaseRoot, component: paths.component, identity: () => identity.identity() });
+    try {
+      const before = await identity.identity(); const page = await reader.page(chatId);
+      if (page.accountId !== before.accountId || (await identity.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
+      const kind = page.kind === 'subchannel' ? 'topic' : ['channel', 'extchannel'].includes(page.kind) ? 'group'
+        : page.peerId === before.accountId ? 'owner-dm' : 'guest-dm';
+      return { accountId: before.accountId, chat: { id: chatId, kind,
+        ...(['owner-dm', 'guest-dm'].includes(kind) ? { peerId: page.peerId } : {}),
+        ...(kind === 'topic' ? { parentId: page.parentId } : {}) } as import('@cindy/im').DchatChat };
+    } finally { reader.dispose(); }
+  },
+});
 let registered = false;
 /** No native inlet is registered until local account, membership and pagination have been verified. */
 export function registerDchatConnectionDraftIpc(): void {
   if (registered) return; registered = true;
+  for (const action of ['get', 'pick', 'save', 'enable', 'disable'] as const) {
+    ipcMain.handle('dchatSetup:' + action, async (event, value: unknown, field: unknown) => {
+      assertTrustedAppRendererEvent(event);
+      try {
+        if (action === 'save') return await setup.save(value as Parameters<typeof setup.save>[0]);
+        if (typeof value !== 'string') throw new Error('DCHAT_INVALID_BOT');
+        if (action === 'pick') return await setup.pick(value, field as DchatSetupPath);
+        return await setup[action](value);
+      } catch (error) {
+        const code = error instanceof Error && /^DCHAT_[A-Z_]+$/.test(error.message) ? error.message : 'DCHAT_SETUP_UNAVAILABLE';
+        throwIpcError('PRECONDITION_FAILED', code);
+      }
+    });
+  }
   for (const action of ['get', 'save', 'remove'] as const) {
     ipcMain.handle(`dchatConnection:${action}`, async (event, value: unknown) => {
       assertTrustedAppRendererEvent(event);

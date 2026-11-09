@@ -4,7 +4,7 @@ import { parseDchatConfig, type DchatChat, type DchatConfig } from './config.js'
 
 export interface DchatInbound {
   messageId: string; accountId: string; chatId: string; senderId: string;
-  text: string; senderName: string; sentBySelf: boolean; invoked: boolean;
+  text: string; sentAt?: number; senderName: string; sentBySelf: boolean; invoked: boolean;
 }
 /** Native platform adapter owns read-only database access and local IPC. No agent runtime here. */
 export interface DchatNative {
@@ -18,6 +18,7 @@ export interface DchatDispatch {
 }
 export interface DchatTransportDeps {
   native: DchatNative; storage: DchatLedgerStorage;
+  authorizationKey?: string;
   current?(): boolean;
   bindingAvailable(botId: string): Promise<boolean>;
   /** Call existing Cindy IM orchestration, never create a replacement agent. */
@@ -44,22 +45,23 @@ export class DchatTransport {
     const available = await this.deps.bindingAvailable(this.config.botId);
     return available && this.enabled && this.generation === generation && this.deps.current?.() !== false;
   }
-  async receive(input: DchatInbound): Promise<'ignored' | 'context' | 'duplicate' | 'dispatched'> {
+  async receive(input: DchatInbound, contextOnly = false): Promise<'ignored' | 'context' | 'duplicate' | 'dispatched'> {
     const generation = this.generation;
     if (!this.enabled || input.accountId !== this.config.accountId || !valid(input.messageId) || !valid(input.senderId)
       || typeof input.text !== 'string' || input.text.length > 100_000 || typeof input.senderName !== 'string'
       || typeof input.sentBySelf !== 'boolean' || typeof input.invoked !== 'boolean') return 'ignored';
-    // Transport-confirmed self identity and sender identity both guard loops.
-    if (input.sentBySelf || input.senderId === input.accountId) return 'ignored';
     const chat = this.config.chats.find(c => c.id === input.chatId);
     if (!chat || ((chat.kind === 'owner-dm' || chat.kind === 'guest-dm') && chat.peerId !== input.senderId)) return 'ignored';
     if (!await this.live(generation)) throw new Error('DCHAT_BINDING_UNAVAILABLE');
-    if (!this.config.executeChatIds?.includes(chat.id) || ((chat.kind === 'group' || chat.kind === 'topic') && !input.invoked)) {
-      await this.deps.context?.(input); return 'context';
+    await this.deps.context?.(input);
+    // Self-authored content can inform context but never starts another turn.
+    if (input.sentBySelf || input.senderId === input.accountId) return 'ignored';
+    if (contextOnly || !this.config.executeChatIds?.includes(chat.id) || ((chat.kind === 'group' || chat.kind === 'topic') && !input.invoked)) {
+      return 'context';
     }
     const destination: DchatDestination = { accountId: this.config.accountId, connectionId: this.config.connectionId,
       botId: this.config.botId, chatId: chat.id, topicId: chat.kind === 'topic' ? chat.id : '' };
-    const receipt = this.ledger.reserve(input.messageId, destination, generation);
+    const receipt = this.ledger.reserve(input.messageId, destination, generation, this.deps.authorizationKey);
     if (!receipt) return 'duplicate';
     // A received body is never evidence of owner authority.
     try {
@@ -84,6 +86,30 @@ export class DchatTransport {
   }
   finish(requestKey: string, generation: string, state: 'done' | 'aborted' | 'error'): void {
     this.ledger.transition(requestKey, generation, state);
+  }
+  /** Resume only content-free terminal notifications that were durably observed.
+   * Never polls companion history/reply or replays an input. An attempted output,
+   * including a successful final, permanently excludes the fallback notification. */
+  async recoverTerminalNotifications(): Promise<void> {
+    const generation = this.generation;
+    for (const candidate of this.ledger.executionInputs()) {
+      if (!await this.live(generation)) throw new Error('DCHAT_BINDING_UNAVAILABLE');
+      if (candidate.authorizationKey !== this.deps.authorizationKey) continue;
+      const d = candidate.destination;
+      if (d.accountId !== this.config.accountId || d.connectionId !== this.config.connectionId || d.botId !== this.config.botId
+        || !this.config.executeChatIds?.includes(d.chatId)
+        || !this.config.chats.some(c => c.id === d.chatId && (c.kind === 'topic' ? c.id : '') === d.topicId)) continue;
+      const row = this.ledger.claimTerminalNotification(candidate.requestKey); if (!row) continue;
+      if (this.config.replyMode !== 'automatic') { this.ledger.transition(row.requestKey, row.generation, row.nativeTerminal!); continue; }
+      if (!(await this.deps.native.capabilities()).includes(this.config.sendMode === 'clean-v2' ? 'dchat_im_clean_send_v2' : 'content')) throw new Error('DCHAT_SEND_UNAVAILABLE');
+      if (!await this.live(generation)) throw new Error('DCHAT_BINDING_UNAVAILABLE');
+      const text = row.nativeTerminal === 'done' ? 'Cindy 任务已完成，请在 Cindy 查看结果。' : row.nativeTerminal === 'aborted' ? 'Cindy 任务已停止，请在 Cindy 查看详情。' : 'Cindy 任务未完成，请在 Cindy 查看详情。';
+      await this.ledger.deliver(row.requestKey, row.generation, row.destination, 'terminal', () => this.deps.native.send({
+        accountId: d.accountId, chatId: d.chatId, text, requestId: randomUUID(), mode: this.config.sendMode },
+        { isCurrent: () => this.enabled && this.generation === generation && this.deps.current?.() !== false }),
+        () => this.enabled && this.generation === generation && this.deps.current?.() !== false);
+      this.ledger.transition(row.requestKey, row.generation, row.nativeTerminal!);
+    }
   }
   async final(requestKey: string, generation: string, outputId: string, text: string): Promise<void> {
     const row = this.ledger.read(requestKey);

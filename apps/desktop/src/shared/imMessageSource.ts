@@ -41,6 +41,7 @@ const IM_CHANNEL_DISPLAY_NAMES: Record<string, string> = {
   dingtalk: '钉钉',
   discord: 'Discord',
   imessage: 'iMessage',
+  dchat: 'D-Chat',
   slack: 'Slack',
   x: 'X',
 };

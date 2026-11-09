@@ -2782,6 +2782,7 @@ export function createTurnRunner(
       const state = sessionStates.get(localSessionId);
       if (!state) return;
       const turn = state.queue[0];
+      const outputAccepted = adapter.acceptsAgentEvent?.(localSessionId, event) !== false;
       if (!turn) {
         // 只回传自动执行：scheduler 轮次，以及渠道自有任务里其它任务来信或 Agent 自己唤醒
         // (后台任务完成通知，没有任何发送)触发的轮次。桌面输入留在桌面。通知回复只临时
@@ -2789,11 +2790,11 @@ export function createTurnRunner(
         // 收口(含 silent-stop 自动续跑)。伙伴 channel 专线只服务这个渠道, 同样回传;
         // 伙伴主任务与桌面共用, 不回传。
         const channelOwned = ownsChannelOutput(state);
-        if (
+        if (outputAccepted && (
           state.scheduledTranspond !== null ||
           (event.turnOrigin?.kind === 'scheduler' && (channelOwned || state.attached)) ||
           (channelOwned && state.relayedTurn)
-        ) {
+        )) {
           transpondScheduledEvent(state, event);
         }
         // done / 终止型 error 同时是"session 空闲了"的信号 — 触发排队消息派发。
@@ -2810,6 +2811,7 @@ export function createTurnRunner(
         }
         return;
       }
+      if (!outputAccepted) return;
       switch (event.type) {
         case 'text':
           return handleTextEvent(turn, event);

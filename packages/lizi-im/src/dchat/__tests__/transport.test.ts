@@ -78,3 +78,13 @@ describe('DchatTransport', () => {
     expect(d.sends).toEqual([]); expect(d.drafts).toHaveLength(1);
   });
 });
+
+// Context baselines are never execution, even when an older message contains an @.
+// Existing tests covered uninvoked live messages, not the first-read page path.
+it('records invoked baseline context and self messages without dispatching them', async () => {
+  const h = harness(); const t = h.make();
+  expect(await t.receive(input('g', 'guest'), true)).toBe('context');
+  expect(await t.receive(input('g', 'self'))).toBe('ignored');
+  expect(h.contexts.map(m => m.senderId)).toEqual(['guest', 'self']);
+  expect(h.dispatches).toEqual([]);
+});

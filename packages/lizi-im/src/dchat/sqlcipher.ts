@@ -251,7 +251,7 @@ export function decodeDchatPage(raw: unknown, accountId: string, chatId: string,
       return m?.uid === accountId && m.user_type === 'User';
     });
     return { accountId, chatId, messageId: row.messageId, senderId: row.senderId, senderName: typeof row.senderName === 'string' ? row.senderName.slice(0, 256) : row.senderId,
-      text: row.text, sequence: seq, previousId: row.previousId, sentBySelf: row.senderId === accountId, invoked };
+      text: row.text, sentAt: Number(row.timestamp), sequence: seq, previousId: row.previousId, sentBySelf: row.senderId === accountId, invoked };
   });
   const parentId = value.parent.length === 1 && id(value.parent[0]) ? value.parent[0] : '';
   if (chat.kind === 'subchannel' && !parentId) throw new Error('DCHAT_MEMBERSHIP_UNAVAILABLE');

@@ -2698,6 +2698,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── 伙伴自有 IM 机器人连接(Telegram / 飞书, 伙伴设置「消息平台」页)──
   // 凭证只进 main 的安全存储, 不回传; 记录按连接 id 管理。
+  dchatSetup: {
+    get: (botId: string) => ipcRenderer.invoke('dchatSetup:get', botId),
+    pick: (botId: string, field: import('../shared/dchatConnection').DchatSetupPath) => ipcRenderer.invoke('dchatSetup:pick', botId, field),
+    save: (input: Parameters<import('../shared/dchatConnection').DchatSetupApi['save']>[0]) => ipcRenderer.invoke('dchatSetup:save', input),
+    enable: (botId: string) => ipcRenderer.invoke('dchatSetup:enable', botId),
+    disable: (botId: string) => ipcRenderer.invoke('dchatSetup:disable', botId),
+  } satisfies import('../shared/dchatConnection').DchatSetupApi,
   dchatConnection: {
     get: (botId: string) => ipcRenderer.invoke('dchatConnection:get', botId),
     save: (draft: import('../shared/dchatConnection').DchatConnectionDraft) => ipcRenderer.invoke('dchatConnection:save', draft),

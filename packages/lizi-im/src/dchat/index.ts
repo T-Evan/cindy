@@ -11,7 +11,10 @@ export type { DchatLedgerStorage } from './ledger.js';
 
 export interface DchatIMOptions {
   config: DchatConfig; native: DchatNative; storage: DchatLedgerStorage;
+  authorizationKey?: string;
   current?(): boolean;
+  context?(input: DchatInbound): Promise<void>;
+  executionBound?(receipt: import('./ledger.js').DchatReceipt): void;
   bindingAvailable(botId: string): Promise<boolean>;
   draft(input: { requestKey: string; chatId: string; text: string }): Promise<void>;
 }
@@ -61,6 +64,11 @@ export class DchatIM extends BaseIM implements TextChannelIM {
     if (!this.transport || !this.current(this.generation)) throw new Error('DCHAT_CONNECTION_UNAVAILABLE');
     return this.transport.receive(input);
   }
+  async recordContext(input: DchatInbound): Promise<void> {
+    if (!this.transport || !this.current(this.generation)) throw new Error('DCHAT_CONNECTION_UNAVAILABLE');
+    await this.transport.receive(input, true);
+  }
+  inputForRequest(requestKey: string): DchatInbound | null { return this.byMessage.get(requestKey)?.inbound ?? null; }
   private async dispatch(value: DchatDispatch): Promise<void> {
     if (!value.isCurrent() || !this.current(this.generation) || !this.messages.size) throw new Error('DCHAT_RUNNER_UNAVAILABLE');
     if (!await this.transport?.canDispatch(value) || !value.isCurrent() || !this.current(this.generation)) throw new Error('DCHAT_STALE_INPUT');
@@ -97,13 +105,30 @@ export class DchatIM extends BaseIM implements TextChannelIM {
   private accept(value: DchatDispatch): void {
     if (['reserved', 'queued'].includes(this.transport?.ledger.read(value.receipt.requestKey)?.state ?? '')) this.transport?.acknowledge(value.receipt.requestKey, value.receipt.generation);
   }
-  acknowledgeIncoming(messageId: string, sessionId?: string, clientId?: string): void {
+  acknowledgeIncoming(messageId: string, sessionId?: string, clientId?: string, native?: { instanceId: string; turnGeneration: number }): void {
     const value = this.byMessage.get(messageId);
     if (value) {
-      if (sessionId && clientId) this.transport!.ledger.bindExecution(value.receipt.requestKey, value.receipt.generation, sessionId, clientId);
+      if (sessionId && clientId) this.transport!.ledger.bindExecution(value.receipt.requestKey, value.receipt.generation, sessionId, clientId, native);
       this.accept(value);
+      const receipt = this.transport!.ledger.read(messageId);
+      if (receipt?.execution?.instanceId) this.options.executionBound?.(receipt);
     }
   }
+  acceptsExecutionEvent(sessionId: string, event: { sessionInstanceId?: string; sessionTurnGeneration?: number; agentMeta?: { botPrivateReply?: boolean; replyToClientId?: string } }): boolean {
+    if (!this.transport || !this.current(this.generation) || event.agentMeta?.botPrivateReply === true) return false;
+    return [...this.active.values()].some(value => {
+      const row = this.transport!.ledger.read(value.receipt.requestKey);
+      return row?.state === 'accepted' && row.execution?.sessionId === sessionId
+      && row.execution.instanceId === event.sessionInstanceId && row.execution.turnGeneration === event.sessionTurnGeneration
+      && !!row.execution.instanceId && (event.agentMeta?.replyToClientId === undefined || event.agentMeta.replyToClientId === row.execution.clientId);
+    });
+  }
+  executionInputs() { return this.transport?.ledger.executionInputs() ?? []; }
+  recordNativeTerminal(requestKey: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }, terminal: 'done' | 'error' | 'aborted'): void {
+    if (!this.transport || !this.current(this.generation)) throw new Error('DCHAT_CONNECTION_UNAVAILABLE');
+    this.transport.ledger.recordNativeTerminal(requestKey, execution, terminal);
+  }
+  async recoverTerminalNotifications(): Promise<void> { await this.transport?.recoverTerminalNotifications(); }
   queuedInputs() { return this.transport?.ledger.queued() ?? []; }
   private release(lane: string, messageId: string): void {
     this.active.delete(lane); this.byMessage.delete(messageId);

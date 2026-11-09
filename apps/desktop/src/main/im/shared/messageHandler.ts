@@ -461,6 +461,11 @@ export function createMessageHandler(
       try {
         prepared = await adapter.prepareAgentTurnText(event);
       } catch (err) {
+        if (adapter.inputPreparationRequired) {
+          log.warn('Required channel context unavailable; input not executed');
+          await event.delivery?.accept();
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(`prepareAgentTurnText failed (degraded to raw text): ${msg}`);
       }

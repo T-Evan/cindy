@@ -1,0 +1,50 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createDchatSetupHandlers } from '../connectionSetup';
+import type { NativeBinding } from '../nativeRuntime';
+/** Unit: setup public handlers must not promote renderer identity or enable on save.
+ * Existing draft tests cannot exercise local verification/activation. Minimal failures:
+ * renderer ownerId injection, identity changed between save/enable, scope changed during
+ * native file dialog. Rules: Electron boundary §1, owner storage, IM confirmation.
+ * Runtime recorded with the stage evidence. No native process/account/network used. */
+function fixture() {
+  let owner: string | null = 'owner:1'; let bindings: NativeBinding[] = [];
+  let account = '101'; let connected = false;
+  const deps = { scope: () => owner, platform: 'darwin', read: () => structuredClone(bindings),
+    write: vi.fn(async (binding: NativeBinding, expected: string) => { if (owner !== expected) throw new Error('stale'); bindings = [structuredClone(binding)]; }),
+    available: vi.fn(async () => true), choose: vi.fn(async () => '/synthetic/selected'),
+    verify: vi.fn(async (_paths: unknown, chatId: string) => ({ accountId: account, chat: { id: chatId, kind: 'group' as const } })),
+    connected: () => connected, reload: vi.fn(async () => { connected = bindings[0]?.enabled === true; }) };
+  const setup = createDchatSetupHandlers(deps);
+  const select = async () => { for (const field of ['identityExecutable', 'sqlcipherExecutable', 'component', 'databaseRoot'] as const) await setup.pick('bot_a', field); };
+  return { setup, deps, select, bindings: () => bindings, account: (id: string) => { account = id; }, owner: (id: string | null) => { owner = id; } };
+}
+describe('Main-owned D-Chat setup', () => {
+  it('saves verified local identity disabled, then explicitly enables and revokes', async () => {
+    const f = fixture(); await f.select();
+    expect((await f.setup.save({ botId: 'bot_a', chatId: '303', execute: false })).status).toBe('saved');
+    expect(f.bindings()[0]?.config).toMatchObject({ accountId: '101', ownerId: '101', executeChatIds: [], replyMode: 'draft', sendMode: 'attributed' });
+    expect((await f.setup.enable('bot_a')).status).toBe('connected');
+    expect(f.deps.verify).toHaveBeenCalledTimes(2);
+    expect((await f.setup.disable('bot_a')).enabled).toBe(false);
+  });
+  it('refuses renderer identity claims and account replacement before enabling', async () => {
+    const f = fixture(); await f.select();
+    expect(() => f.setup.save({ botId: 'bot_a', chatId: '303', execute: true, ownerId: 'attacker' } as never)).toThrow('DCHAT_INVALID_SETUP');
+    await f.setup.save({ botId: 'bot_a', chatId: '303', execute: true });
+    f.account('202'); await expect(f.setup.enable('bot_a')).rejects.toThrow('DCHAT_ACCOUNT_CHANGED');
+    expect(f.bindings()[0]?.enabled).toBe(false);
+  });
+  it('rejects a stale native dialog and an unavailable original teammate', async () => {
+    const f = fixture(); f.deps.choose.mockImplementation(async () => { f.owner('other:2'); return '/synthetic/stale'; });
+    await expect(f.setup.pick('bot_a', 'component')).rejects.toThrow('DCHAT_ACCOUNT_CHANGED');
+    expect(f.setup.get('bot_a').selected).toEqual([]);
+    f.deps.available.mockResolvedValue(false);
+    await expect(f.setup.save({ botId: 'bot_a', chatId: '303', execute: false })).rejects.toThrow();
+    expect(f.deps.write).not.toHaveBeenCalled();
+  });
+  it('shows a saved but unavailable connection without claiming it is enabled', async () => {
+    const f = fixture(); await f.select(); await f.setup.save({ botId: 'bot_a', chatId: '303', execute: false });
+    f.deps.reload.mockResolvedValue(undefined);
+    expect((await f.setup.enable('bot_a')).status).toBe('offline');
+  });
+});

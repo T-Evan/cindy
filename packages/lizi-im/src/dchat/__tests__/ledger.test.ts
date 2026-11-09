@@ -32,6 +32,17 @@ describe('DchatLedger', () => {
     const otherAccount = { ...destination(), accountId: 'account-b' };
     expect(restarted.reserve(row.messageId, otherAccount, 'generation-b')).not.toBeNull();
   });
+  // A revoked native configuration cannot replay its queued inputs. Earlier
+  // restart coverage only checked accepted inputs and teammate rebinding.
+  it('resumes never-dispatched queued input only under its original persisted authorization', () => {
+    const s = store(); const ledger = new DchatLedger(s.storage);
+    const row = ledger.reserve('queued-input', destination(), 'generation-a', 'lease-a')!;
+    ledger.transition(row.requestKey, row.generation, 'queued');
+    const restarted = new DchatLedger(s.storage);
+    expect(restarted.reserve(row.messageId, destination(), 'generation-b', 'lease-b')).toBeNull();
+    expect(restarted.reserve(row.messageId, destination(), 'generation-b')).toBeNull();
+    expect(restarted.reserve(row.messageId, destination(), 'generation-b', 'lease-a')?.state).toBe('reserved');
+  });
   it('binds simultaneous partner outputs to their original account/chat/topic', async () => {
     const ledger = new DchatLedger(store().storage);
     const a = accepted(ledger, 'a', destination());

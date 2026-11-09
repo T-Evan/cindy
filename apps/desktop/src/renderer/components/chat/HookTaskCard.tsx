@@ -19,6 +19,7 @@ import SlackIcon from './SlackIcon';
 import XIcon from './XIcon';
 import {
   isImMessageCount,
+  imChannelDisplayName,
   type ImMessageOrigin,
   type ImMessageSource,
 } from '../../../shared/imMessageSource';
@@ -85,6 +86,8 @@ export function imLabel(im: string, t: TFunction): string {
       return t('settings.wecomBot.serviceName');
     case 'dingtalk':
       return t('settings.dingtalkBot.serviceName');
+    case 'dchat':
+      return imChannelDisplayName(im) ?? im;
     default:
       return im;
   }

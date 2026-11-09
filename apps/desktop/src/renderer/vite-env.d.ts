@@ -2434,6 +2434,7 @@ interface ElectronAPI {
   };
 
   // ── 伙伴自有 IM 机器人连接(Telegram / 飞书, 伙伴设置「消息平台」页)──
+  dchatSetup: import('../shared/dchatConnection').DchatSetupApi;
   dchatConnection: import('../shared/dchatConnection').DchatConnectionApi;
   botImConnection: {
     list: () => Promise<import('../shared/botImConnection').BotImConnectionListPayload>;

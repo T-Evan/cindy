@@ -83,6 +83,9 @@ import { createTurnRunner, type ImTurnRunner } from '../turnRunner';
 import { DchatIM } from '@cindy/im';
 import type { IMHost } from '@cindy/im';
 import { createDchatChannelAdapter } from '../../dchat/channelAdapter';
+import { runAssistantReplyHook } from '../../../cindy-brain/assistantReplyHook';
+import { isGhostEligibleSessionRow } from '../../../cindy-brain/subscriptionGateway';
+import { handlePluginCompanionRequest, createCompanionWatchHub, type PluginCompanionAdapter } from '../../../cindy-brain/pluginCompanionSlot';
 import type { ImCardBuilders } from '../cardBuilders';
 import type { ImSessionRepo, ImSessionRow } from '../sessionRepo';
 import type { ImChannelAdapter } from '../types';
@@ -108,6 +111,7 @@ function makeSessionHarness(sessionId: string): SessionHarness {
   );
   const session = {
     id: sessionId,
+    getTurnGeneration: () => 1,
     workDir: '/tmp/wd',
     agentKind: 'claude-code',
     instanceId: `${sessionId}-instance`,
@@ -362,10 +366,61 @@ describe('turnRunner: connection handed to a companion bot', () => {
       expect(companion.prepareSend).toHaveBeenCalledWith('mimi-main');
       const h = harnesses.get('mimi-main')!;
       expect(h.send).toHaveBeenCalledTimes(1); expect(fakeRepo.createSession).not.toHaveBeenCalled();
-      h.emit({ type: 'text', data: { text: 'synthetic result', isFinal: true } } as AgentEvent);
-      h.emit({ type: 'done', data: {} } as AgentEvent);
+      // Cross-module privacy boundary: plugin companion snapshots may be readable
+      // to their authorized UI, but never constitute channel output. Bot-excluded
+      // assistant hooks cannot be used as an alternative D-Chat delivery mechanism.
+      const unavailable = async (): Promise<never> => { throw new Error('unused synthetic API'); };
+      const snapshots: PluginCompanionAdapter = { list: unavailable, avatar: unavailable, open: unavailable,
+        interaction: unavailable, answer: unavailable,
+        reply: async () => ({ text: 'private plugin reply', createdAt: 1, truncated: false }),
+        history: async () => ({ messages: [{ role: 'user', text: 'private plugin history', createdAt: 1, truncated: false }], more: false }) };
+      const hub = createCompanionWatchHub({ send: () => true, approved: () => true });
+      for (const kind of ['history', 'reply']) {
+        const result = await handlePluginCompanionRequest(snapshots, hub, { kind, companionId: 'bot-mimi' }, { ghostId: 'synthetic-plugin', assertAuthorized() {} });
+        expect(result.ok).toBe(true);
+        await expect(im.sendText('dm', JSON.stringify(result))).rejects.toThrow('DCHAT_USE_BOUND_FINAL_OUTPUT');
+      }
+      const screen = vi.fn();
+      await runAssistantReplyHook({ hasHook: () => true,
+        isEligible: async () => isGhostEligibleSessionRow({ source: 'bot', orcaRole: null }), screen,
+        persistRewrite: unavailable, applyRenderCard: unavailable, broadcastRewritten: vi.fn(), setPending: vi.fn(),
+      }, h.session.id, 'private-snapshot', 'private hook result');
+      expect(screen).not.toHaveBeenCalled(); expect(sends).toEqual([]);
+
+      h.emit({ type: 'text', data: { text: 'private companion history', isFinal: true },
+        sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 1, agentMeta: { botPrivateReply: true } } as AgentEvent);
+      h.emit({ type: 'text', data: { text: 'stale native result', isFinal: true },
+        sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 2 } as AgentEvent);
+      h.emit({ type: 'text', data: { text: 'synthetic result', isFinal: true },
+        sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 1 } as AgentEvent);
+      h.emit({ type: 'done', data: {}, sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 1 } as AgentEvent);
       await vi.waitFor(() => expect(sends).toMatchObject([{ chatId: 'dm', text: 'synthetic result' }]), { interval: 1 });
     } finally { await dchatRunner.disposeAllSessions(); await im.dispose(); }
+  });
+
+  // Native output filtering must not suppress the queue's idle signal. Unit tier:
+  // a desktop turn finishing while a companion IM input is queued; no prior test
+  // combines a rejected output event with the shared runner's busy queue.
+  it('drains a busy companion lane without forwarding the unrelated native terminal', async () => {
+    let accepted = false;
+    const h = makeSessionHarness('mimi-main'); harnesses.set('mimi-main', h);
+    vi.mocked(h.session.isTurnRunning).mockReturnValue(true);
+    const filtered = createTurnRunner({ ...fakeAdapter, companionRequired: true,
+      acceptsAgentEvent: () => accepted,
+      onUserMessagePersisted: async () => { accepted = true; },
+    }, fakeRepo, fakeCards, { companion });
+    try {
+      await filtered.runAgentTurn({ botContextId: BOT_CONTEXT, userId: OWNER,
+        userMessageId: 'queued-native', text: 'queued request', attachments: [], requesterIsOwner: true });
+      expect(h.send).not.toHaveBeenCalled();
+      vi.mocked(h.session.isTurnRunning).mockReturnValue(false);
+      h.emit({ type: 'text', data: { text: 'desktop private result', isFinal: true } } as AgentEvent);
+      h.emit({ type: 'done', data: {} } as AgentEvent);
+      await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1), { interval: 1 });
+      expect(mocks.im.startStreamingText).not.toHaveBeenCalled();
+      expect(mocks.im.sendText.mock.calls.every(call => !String(call[1]).includes('desktop private result'))).toBe(true);
+      h.emit({ type: 'done', data: {} } as AgentEvent);
+    } finally { await filtered.disposeAllSessions(); }
   });
 
   it('keeps the channel’s own routing for an unbound connection', async () => {

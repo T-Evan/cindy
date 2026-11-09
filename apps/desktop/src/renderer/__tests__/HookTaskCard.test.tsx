@@ -230,6 +230,7 @@ describe('HookTaskCard attached context', () => {
         ['wechat', wechat],
         ['wecom', wecom],
         ['dingtalk', dingtalk],
+        ['dchat', 'D-Chat'],
         ['future-channel', 'future-channel'],
       ]) {
         const { unmount } = render(<HookTaskCard im={im} userText="Question" />);

@@ -8,7 +8,10 @@ export type DchatInputState = 'reserved' | 'queued' | 'accepted' | 'done' | 'abo
 export interface DchatReceipt {
   requestKey: string; messageId: string; destination: DchatDestination;
   generation: string; state: DchatInputState;
-  execution?: { sessionId: string; clientId: string };
+  /** Stable host configuration lease; absent legacy receipts cannot claim a new lease. */
+  authorizationKey?: string;
+  execution?: { sessionId: string; clientId: string; instanceId?: string; turnGeneration?: number };
+  nativeTerminal?: 'done' | 'error' | 'aborted';
   outputs: Record<string, { state: 'sending' | 'sent' | 'unknown'; messageId?: string }>;
 }
 export interface DchatLedgerStorage {
@@ -26,11 +29,13 @@ function validId(value: unknown): value is string {
 function validReceipt(value: unknown): value is DchatReceipt {
   if (!value || typeof value !== 'object') return false;
   const r = value as DchatReceipt;
-  return validId(r.requestKey) && validId(r.messageId) && validId(r.generation)
+  return (r.authorizationKey === undefined || validId(r.authorizationKey)) && validId(r.requestKey) && validId(r.messageId) && validId(r.generation)
     && ['reserved', 'queued', 'accepted', 'done', 'aborted', 'error', 'unknown'].includes(r.state)
     && !!r.destination && ['accountId', 'connectionId', 'botId', 'chatId'].every(k => validId(r.destination[k as keyof DchatDestination]))
     && typeof r.destination.topicId === 'string' && r.destination.topicId.length <= 2048
     && (r.execution === undefined || (!!r.execution && validId(r.execution.sessionId) && validId(r.execution.clientId)))
+    && (r.nativeTerminal === undefined || ['done', 'error', 'aborted'].includes(r.nativeTerminal))
+    && (r.execution?.instanceId === undefined || (validId(r.execution.instanceId) && Number.isSafeInteger(r.execution.turnGeneration) && r.execution.turnGeneration! > 0))
     && !!r.outputs && typeof r.outputs === 'object' && !Array.isArray(r.outputs)
     && Object.entries(r.outputs).every(([k, o]) => /^[a-f0-9]{64}$/.test(k) && !!o && ['sending', 'sent', 'unknown'].includes(o.state)
       && (o.messageId === undefined || validId(o.messageId)));
@@ -63,8 +68,8 @@ export class DchatLedger {
       this.receipts.clear(); for (const [key, row] of before) this.receipts.set(key, row); throw error;
     }
   }
-  reserve(messageId: string, destination: DchatDestination, generation: string): DchatReceipt | null {
-    if (!validId(messageId) || !validId(generation) || !['accountId', 'connectionId', 'botId', 'chatId'].every(k => validId(destination[k as keyof DchatDestination]))
+  reserve(messageId: string, destination: DchatDestination, generation: string, authorizationKey?: string): DchatReceipt | null {
+    if ((authorizationKey !== undefined && !validId(authorizationKey)) || !validId(messageId) || !validId(generation) || !['accountId', 'connectionId', 'botId', 'chatId'].every(k => validId(destination[k as keyof DchatDestination]))
       || typeof destination.topicId !== 'string' || destination.topicId.length > 2048) throw new Error('DCHAT_INVALID_IDENTITY');
     // botId is intentionally excluded: rebinding must not replay an old input.
     const requestKey = digest([destination.accountId, destination.connectionId, destination.chatId, destination.topicId, messageId]);
@@ -72,11 +77,11 @@ export class DchatLedger {
     if (existing) {
       // Only a durably queued, never-dispatched input can be resumed. Bodies are
       // re-read by the native reader and revalidated against the current account.
-      if (existing.state !== 'queued' || existing.generation === generation || !same(existing.destination, destination) || existing.execution) return null;
+      if (existing.state !== 'queued' || existing.generation === generation || !same(existing.destination, destination) || existing.execution || existing.authorizationKey !== authorizationKey) return null;
       return this.mutate(() => { existing.generation = generation; existing.state = 'reserved'; return structuredClone(existing); });
     }
     return this.mutate(() => {
-      const row: DchatReceipt = { requestKey, messageId, destination: structuredClone(destination), generation, state: 'reserved', outputs: {} };
+      const row: DchatReceipt = { requestKey, messageId, destination: structuredClone(destination), generation, state: 'reserved', ...(authorizationKey !== undefined ? { authorizationKey } : {}), outputs: {} };
       this.receipts.set(requestKey, row); return structuredClone(row);
     });
   }
@@ -89,14 +94,30 @@ export class DchatLedger {
     });
   }
   queued(): DchatReceipt[] { return [...this.receipts.values()].filter(r => r.state === 'queued').map(r => structuredClone(r)); }
-  bindExecution(requestKey: string, generation: string, sessionId: string, clientId: string): void {
-    if (!validId(sessionId) || !validId(clientId)) throw new Error('DCHAT_INVALID_EXECUTION');
+  bindExecution(requestKey: string, generation: string, sessionId: string, clientId: string, native?: { instanceId: string; turnGeneration: number }): void {
+    if (!validId(sessionId) || !validId(clientId) || (native && (!validId(native.instanceId) || !Number.isSafeInteger(native.turnGeneration) || native.turnGeneration <= 0))) throw new Error('DCHAT_INVALID_EXECUTION');
     this.mutate(() => {
       const row = this.receipts.get(requestKey);
       if (!row || row.generation !== generation || !['reserved', 'queued', 'accepted'].includes(row.state)
         || (row.execution && (row.execution.sessionId !== sessionId || row.execution.clientId !== clientId))) throw new Error('DCHAT_STALE_INPUT');
-      row.execution = { sessionId, clientId };
+      row.execution = { sessionId, clientId, ...native };
     });
+  }
+  executionInputs(): DchatReceipt[] {
+    return [...this.receipts.values()].filter(r => r.execution?.instanceId && ['accepted', 'unknown'].includes(r.state)).map(r => structuredClone(r));
+  }
+  recordNativeTerminal(requestKey: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }, terminal: 'done' | 'error' | 'aborted'): void {
+    const row = this.receipts.get(requestKey);
+    if (!row || !['accepted', 'unknown'].includes(row.state) || !row.execution
+      || row.execution.sessionId !== execution.sessionId || row.execution.clientId !== execution.clientId
+      || row.execution.instanceId !== execution.instanceId || row.execution.turnGeneration !== execution.turnGeneration) throw new Error('DCHAT_STALE_EXECUTION');
+    if (row.nativeTerminal) return;
+    this.mutate(() => { row.nativeTerminal = terminal; });
+  }
+  claimTerminalNotification(requestKey: string): DchatReceipt | null {
+    const row = this.receipts.get(requestKey);
+    if (!row || row.state !== 'unknown' || !row.nativeTerminal || !row.execution?.instanceId || Object.keys(row.outputs).length) return null;
+    return this.mutate(() => { row.state = 'accepted'; return structuredClone(row); });
   }
   /** Reserve before any send; throwing/timeout is always unknown, never automatically retry. */
   async deliver(requestKey: string, generation: string, destination: DchatDestination, outputId: string,

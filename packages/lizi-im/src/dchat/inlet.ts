@@ -59,7 +59,9 @@ export class DchatNativeInlet {
         if (!message) throw new Error('DCHAT_HISTORY_GAP');
         await this.deps.im.receive(message);
       }
-      await this.pollOnce(); this.schedule();
+      const first = this.pollOnce(); this.pending = first;
+      try { await first; } finally { if (this.pending === first) this.pending = null; }
+      this.schedule();
     } catch (error) { await this.stop(); throw error; }
   }
   private schedule(): void {
@@ -84,6 +86,10 @@ export class DchatNativeInlet {
           await this.verify(); await this.deps.im.receive(message);
         }
       }
+      if (!cursor) {
+        // Baseline history feeds the shared context window, never the executor.
+        for (const message of page.messages) { await this.verify(); await this.deps.im.recordContext(message); }
+      }
       // A first cached page establishes a baseline, never an automatic trigger.
       await this.verify();
       if (!this.current()) throw new Error('DCHAT_ACCOUNT_CHANGED');
@@ -97,6 +103,10 @@ export class DchatNativeInlet {
   async stop(): Promise<void> {
     this.stopped = true; this.abort?.abort(); this.abort = null;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
+    const pending = this.pending;
     this.deps.reader.dispose(); await this.deps.im.dispose();
+    // Account teardown waits for this inlet's context/DB work to drain before
+    // the host replaces the owner DB. The timer error path does not await stop.
+    await pending?.catch(() => {});
   }
 }

@@ -1838,6 +1838,13 @@ export class AgentInputCoordinator {
     return recovery?.kind === 'active-turn' ? predicate(recovery.item) : false;
   }
 
+  /** A channel claim must dispatch its own Continue, never retry an unrelated
+   * queue-head recovery or attach to an in-flight input. Pending FIFO items remain queued. */
+  canClaimAppExitRecovery(sessionId: string): boolean {
+    const state = this.getState(sessionId);
+    return !state.activeTurn && !state.recovery;
+  }
+
   /** Includes the recent idempotency window used by remote weak-link retries. */
   hasKnownClientId(sessionId: string, clientId: string): boolean {
     if (!clientId) return false;

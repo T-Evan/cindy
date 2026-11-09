@@ -2685,8 +2685,9 @@ function CCAgentSessionContent({
   // 跑起来(isRunning)或用户已操作(继续/忽略)即永久熄灭,不追 DB 实时状态。
   // 旧版本插入的中断行仍走上面的 errorTailMsg 行判定(优先),两者互斥渲染。
   const [sessionInterruptAcked, setSessionInterruptAcked] = useState(false);
+  const [sessionInterruptFailure, setSessionInterruptFailure] = useState<string | undefined>();
   useEffect(() => {
-    setSessionInterruptAcked(false);
+    setSessionInterruptAcked(false); setSessionInterruptFailure(undefined);
   }, [sessionId]);
   // 与 errorTailBannerHiddenFor 相同的抑制交棒：点击后的本地 latch 只覆盖
   // enqueue 可见前的短窗口。续跑项进入队列或 coordinator dispatch 边界后由
@@ -2773,13 +2774,14 @@ function CCAgentSessionContent({
   }, [syntheticContinuationPending, remoteDeviceId, sessionId]);
   const handleSessionInterruptContinue = useCallback(async () => {
     if (!sessionId) return;
-    setSessionInterruptAcked(true);
+    setSessionInterruptFailure(undefined);
     try {
       // main 侧把续跑项插到队首；durable ack 延后到 vendor dispatch 成功后，
       // 避免排队取消 / cancelled-before-dispatch 时旧中断提示被提前抹掉。
       // 续跑 turn 真正启动时会写更新的 started；若再次被 app 退出打断，仍会产生新提示。
       // 本视图先靠内存 acked 即时熄灭，peer 视图靠 dispatch 后的 ack 广播收敛。
       await makerChatStore.sendUiTrigger(sessionId, CONTINUE_AFTER_APP_EXIT_PROMPT);
+      setSessionInterruptAcked(true);
       // 同 handleErrorTailContinue:enqueue 成功但续跑还没落库、durable ack 也要等
       // dispatch 成功,而横幅已隐藏 —— 先临时清点保持一致,排队被取消时由 pending
       // 落回 false 的 effect 重算恢复。远程会话同样延后(见那里的说明)。
@@ -2787,6 +2789,7 @@ function CCAgentSessionContent({
       await markCurrentUnreadFailedScheduleRun();
     } catch (err) {
       setSessionInterruptAcked(false);
+      setSessionInterruptFailure(err instanceof Error ? err.message : String(err));
       toast.error(err instanceof Error ? err.message : String(err));
     }
   }, [markCurrentUnreadFailedScheduleRun, remoteDeviceId, sessionId]);
@@ -5450,6 +5453,7 @@ function CCAgentSessionContent({
               !agentStatus.isRunning &&
               sessionId && (
                 <InterruptedTurnBanner
+                  failure={sessionInterruptFailure}
                   onContinue={handleSessionInterruptContinue}
                   onDismiss={handleSessionInterruptDismiss}
                   style={{ width: '100%' }}

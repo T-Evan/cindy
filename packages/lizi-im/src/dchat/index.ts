@@ -3,7 +3,7 @@ import type { ImFinalOutput, TextChannelIM } from '../channelIM.js';
 import type { IMHost, IMMessageEvent, IMStatus, SendFileResult } from '../types.js';
 import { DchatTransport, type DchatDispatch, type DchatInbound, type DchatNative } from './transport.js';
 import { parseDchatConfig, type DchatConfig } from './config.js';
-import type { DchatLedgerStorage } from './ledger.js';
+import { DchatLedger, type DchatLedgerStorage } from './ledger.js';
 export { parseDchatConfig } from './config.js';
 export type { DchatConfig, DchatChat } from './config.js';
 export type { DchatInbound, DchatNative } from './transport.js';
@@ -112,7 +112,7 @@ export class DchatIM extends BaseIM implements TextChannelIM {
   acknowledgeIncoming(messageId: string, sessionId?: string, clientId?: string, native?: { instanceId: string; turnGeneration: number }): void {
     const value = this.byMessage.get(messageId);
     if (value) {
-      if (sessionId && clientId) this.transport!.ledger.bindExecution(value.receipt.requestKey, value.receipt.generation, sessionId, clientId, native);
+      if (sessionId && clientId) this.transport!.ledger.bindExecution(value.receipt.requestKey, value.receipt.generation, sessionId, clientId, native, { senderId: value.inbound.senderId, isOwner: value.requesterIsOwner });
       this.accept(value);
       const receipt = this.transport!.ledger.read(messageId);
       if (receipt?.execution?.instanceId) this.options.executionBound?.(receipt);
@@ -127,12 +127,34 @@ export class DchatIM extends BaseIM implements TextChannelIM {
       && !!row.execution.instanceId && (event.agentMeta?.replyToClientId === undefined || event.agentMeta.replyToClientId === row.execution.clientId);
     });
   }
+  /** Read a validated receipt snapshot without rewriting the live runtime's file. */
+  static storedExecutionInputs(storage: DchatLedgerStorage) {
+    return new DchatLedger({ read: () => storage.read(), write: () => {} }).executionInputs();
+  }
+  static supersedeStoredRecovery(storage: DchatLedgerStorage, requestKey: string): void {
+    new DchatLedger(storage).supersedeRecovery(requestKey);
+  }
+  async verifyRecoverySource(requestKey: string, sourceClientId: string): Promise<void> {
+    const row = this.executionInputs().find(r => r.requestKey === requestKey && r.execution?.clientId === sourceClientId);
+    if (!row || row.recoveryBlocked || !this.transport || row.authorizationKey !== this.options.authorizationKey || this.options.current?.() === false
+      || !await this.options.bindingAvailable(row.destination.botId)
+      || (await this.options.native.identity()).accountId !== row.destination.accountId || !this.current(this.generation)
+      || this.options.current?.() === false || !this.options.config.executeChatIds?.includes(row.destination.chatId)) throw new Error('DCHAT_RECOVERY_REVOKED');
+    const chat = this.options.config.chats.find(c => c.id === row.destination.chatId);
+    if (!chat) throw new Error('DCHAT_RECOVERY_REVOKED');
+    if (this.options.requireLiveMembership && ['group', 'topic'].includes(chat.kind)) {
+      const members = await this.options.native.members?.(chat.parentId ?? chat.id);
+      if (!members || members.accountId !== row.destination.accountId || members.chatId !== (chat.parentId ?? chat.id)
+        || !members.memberIds.includes(row.destination.accountId) || !row.principal || !members.memberIds.includes(row.principal.senderId)) throw new Error('DCHAT_MEMBERSHIP_UNAVAILABLE');
+      if (!this.current(this.generation) || this.options.current?.() === false) throw new Error('DCHAT_ACCOUNT_CHANGED');
+    }
+  }
   recoveryForInput(sessionId: string, clientId: string) {
     return this.executionInputs().find(row => row.execution?.sessionId === sessionId && row.execution.clientId === clientId);
   }
   async adoptExecution(sourceClientId: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }) {
     const row = this.recoveryForInput(execution.sessionId, sourceClientId);
-    if (!row || !this.transport || row.authorizationKey !== this.options.authorizationKey || this.options.current?.() === false
+    if (!row || row.recoveryBlocked || !this.transport || row.authorizationKey !== this.options.authorizationKey || this.options.current?.() === false
       || !await this.options.bindingAvailable(row.destination.botId)
       || (await this.options.native.identity()).accountId !== row.destination.accountId || !this.current(this.generation)
       || this.options.current?.() === false || !this.options.config.executeChatIds?.includes(row.destination.chatId)) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
@@ -150,6 +172,7 @@ export class DchatIM extends BaseIM implements TextChannelIM {
     await this.recoverTerminalNotifications();
   }
   reattachExecution(requestKey: string, execution: NonNullable<import('./ledger.js').DchatReceipt['execution']>): void { this.transport?.ledger.reattachExecution(requestKey, execution); }
+  supersedeRecovery(requestKey: string): void { this.transport?.ledger.supersedeRecovery(requestKey); }
   interruptRecovery(requestKey: string): void { this.transport?.ledger.interruptRecovery(requestKey); }
   executionInputs() { return this.transport?.ledger.executionInputs() ?? []; }
   recordNativeTerminal(requestKey: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }, terminal: 'done' | 'error' | 'aborted'): void {

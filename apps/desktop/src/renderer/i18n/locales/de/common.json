@@ -13339,7 +13339,16 @@
       "continueAction": "Aufgabe fortsetzen",
       "continuing": "Wird fortgesetzt…",
       "continueTitle": "Aufgabe an der letzten Stelle fortsetzen (abgeschlossene Schritte werden nicht wiederholt)",
-      "dismissTitle": "Diesen Unterbrechungshinweis schließen"
+      "dismissTitle": "Diesen Unterbrechungshinweis schließen",
+      "checkingRecovery": "Wiederaufnahme wird geprüft…",
+      "recovery": {
+        "ambiguous": "Die ursprüngliche D-Chat-Eingabe ist nicht eindeutig; keine Eingabe wurde fortgesetzt",
+        "uncertain": "Die D-Chat-Wiederaufnahme wurde bereits beansprucht oder eine Ausgabe könnte gesendet worden sein; ursprüngliche Sitzung in Cindy prüfen",
+        "revoked": "Die D-Chat-Wiederaufnahme wurde nach einer Konto-, Verbindungs- oder Berechtigungsänderung abgelehnt",
+        "busy": "Auf das Ende der aktuellen Eingabe oder Wiederaufnahme warten",
+        "unverified": "Die ursprüngliche D-Chat-Eingabe ist nicht nachweisbar; keine Eingabe wurde erneut gesendet",
+        "local": "D-Chat-Sitzung auf dem Computer fortsetzen, der diese Verbindung ausführt"
+      }
     },
     "interruptedResumeDialog": {
       "title": "Unterbrochene Sitzungen fortsetzen",

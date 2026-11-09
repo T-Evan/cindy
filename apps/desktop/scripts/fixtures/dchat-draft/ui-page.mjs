@@ -3,6 +3,7 @@ export default {
   real: 'DchatConnectionDraft, HookTaskCard with native source name and saved context, shared Input/Button/FormField, real translations and theme tokens',
   notCovered: 'Native D-Chat access, trusted IPC, disk persistence, parent teammate settings route, agent execution and real messages',
   cases: {
+    recovery: { about: 'Original interrupted task Continue shows checking and a durable-claim refusal without hiding the action', data: {} },
     control: { about: 'Owner chooses an exact command chat, save stays disabled, interrupted inputs are visible', data: {} },
     incoming: { about: 'D-Chat source label and saved context use the existing native message card', data: {} },
     default: { about: 'Saved connection requires explicit enable; focus preserves unsaved target edits', data: {} },
@@ -12,6 +13,16 @@ export default {
   },
   async ready(page) { await page.locator('[data-dchat-fixture-ready]').waitFor(); },
   async check(page, ui) {
+    if (ui.case === 'recovery') {
+      const resume = page.getByRole('button', { name: await ui.t('chat.interruptedBanner.continueAction'), exact: true });
+      await resume.waitFor(); await ui.capture('recovery-awaiting-owner');
+      await resume.click();
+      await page.getByRole('button', { name: await ui.t('chat.interruptedBanner.checkingRecovery'), exact: true }).waitFor();
+      await ui.capture('recovery-checking');
+      await page.evaluate(() => window.dispatchEvent(new Event('synthetic-recovery-reject')));
+      await page.getByText(await ui.t('chat.interruptedBanner.recovery.uncertain'), { exact: true }).waitFor();
+      await resume.waitFor(); await ui.capture('recovery-refused'); return;
+    }
     if (ui.case === 'incoming') {
       await page.getByText(await ui.t('chat.threadContext.memberFromPlatform', { name: 'Synthetic guest', platform: 'D-Chat' }), { exact: true }).waitFor();
       await page.getByRole('button').click();

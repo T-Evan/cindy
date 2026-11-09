@@ -18308,6 +18308,14 @@ function sendUiTriggerCore(sessionId: string, prompt: string): Promise<void> {
     })
     .catch((err) => {
       log.warn('sendUiTrigger failed', err);
+      const ipc = extractIpcError(err);
+      if (ipc?.code === 'PRECONDITION_FAILED' && ipc.message.startsWith('DCHAT_')) {
+        const reasons: Record<string, string> = { DCHAT_RECOVERY_AMBIGUOUS: 'ambiguous', DCHAT_RECOVERY_SOURCE_CHANGED: 'ambiguous',
+          DCHAT_RECOVERY_CONSUMED: 'uncertain', DCHAT_RECOVERY_INTERRUPTED: 'uncertain', DCHAT_RECOVERY_OUTPUT_ATTEMPTED: 'uncertain', DCHAT_RECOVERY_SETTLED: 'uncertain',
+          DCHAT_ACCOUNT_CHANGED: 'revoked', DCHAT_RECOVERY_REVOKED: 'revoked', DCHAT_MEMBERSHIP_UNAVAILABLE: 'revoked',
+          DCHAT_RECOVERY_BUSY: 'busy', DCHAT_RECOVERY_LOCAL_REQUIRED: 'local', DCHAT_RECOVERY_QUEUE_REQUIRED: 'local' };
+        throw new Error(i18n.t('chat.interruptedBanner.recovery.' + (reasons[ipc.message] ?? 'unverified')));
+      }
       throw err instanceof Error ? err : new Error(String(err));
     });
 }

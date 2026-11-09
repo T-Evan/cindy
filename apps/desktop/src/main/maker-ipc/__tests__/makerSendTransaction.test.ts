@@ -1,3 +1,4 @@
+import { APP_EXIT_RECOVERY_POLICY } from '../appExitInputRecovery';
 import { ROUTINE_TRIGGER_DATA_LEAD } from '../../../shared/botAutonomy.js';
 import {
   CodexResumePreparationBlockedError,
@@ -4880,4 +4881,23 @@ describe('Agent prewarm', () => {
     expect(deps.bootstrapSession).toHaveBeenCalledWith(expect.objectContaining({ userPrompt: 'mine', workingDir: '/repo' }));
     expect(live?.send).toHaveBeenCalledOnce();
   });
+});
+
+// Unit: Main-only recovery policy must reach Session.send; wire option lookalikes
+// must not remove the original guest approval policy or mint desktop authority.
+it('preserves native D-Chat recovery origin and guest approval at the ordinary send transaction', async () => {
+  const { deps, session } = createDeps();
+  const policy: NonNullable<SessionSendOptions['turnPermissionPolicy']> = {
+    origin: { kind: 'im', channel: 'dchat', taskId: 'original-request' }, autoReviewContext: { requesterAuthority: 'guest', source: 'group' },
+    confirmationSurface: 'desktop', confirmationTimeoutMs: 30 * 60_000, forceConfirmToolCall: () => true,
+  };
+  await createMakerSendTransaction(deps).sendToAgentAccepted('session-1', 'Continue', undefined, {
+    [APP_EXIT_RECOVERY_POLICY]: { context: { origin: policy.origin }, turnPermissionPolicy: policy },
+  });
+  expect(session.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    [MAIN_OWNED_SEND_CONTEXT]: { origin: policy.origin }, turnPermissionPolicy: policy,
+  }));
+  const fresh = createDeps();
+  await createMakerSendTransaction(fresh.deps).sendToAgentAccepted('session-1', 'Next ordinary input', undefined, { APP_EXIT_RECOVERY_POLICY: { turnPermissionPolicy: policy } });
+  expect(vi.mocked(fresh.session.send).mock.calls[0]![1]?.turnPermissionPolicy).toBeUndefined();
 });

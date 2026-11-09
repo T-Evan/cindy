@@ -13319,7 +13319,16 @@
       "continueAction": "继续任务",
       "continuing": "继续中…",
       "continueTitle": "从中断处继续完成任务（不会重复已完成的步骤）",
-      "dismissTitle": "关闭此中断提示"
+      "dismissTitle": "关闭此中断提示",
+      "checkingRecovery": "正在核验恢复…",
+      "recovery": {
+        "ambiguous": "D-Chat 恢复来源有歧义，未继续任何输入",
+        "uncertain": "D-Chat 原输入已被领取，或已尝试输出；请在 Cindy 检查原任务",
+        "revoked": "账号、连接或权限已变化，D-Chat 恢复被拒绝",
+        "busy": "当前仍有输入或恢复未结束，请等待后再继续",
+        "unverified": "缺少可核验的 D-Chat 原输入记录，未重放输入",
+        "local": "请在运行此连接的电脑上继续 D-Chat 任务"
+      }
     },
     "interruptedResumeDialog": {
       "title": "继续上次中断的任务",

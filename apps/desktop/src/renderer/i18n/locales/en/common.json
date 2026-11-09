@@ -13376,7 +13376,16 @@
       "continueAction": "Continue task",
       "continuing": "Continuing…",
       "continueTitle": "Continue from where the task left off (completed steps will not be repeated)",
-      "dismissTitle": "Dismiss this interruption notice"
+      "dismissTitle": "Dismiss this interruption notice",
+      "checkingRecovery": "Checking Recovery…",
+      "recovery": {
+        "ambiguous": "D-Chat recovery has several possible original inputs; none was resumed",
+        "uncertain": "D-Chat recovery was already claimed or an output may have been sent; check the original task in Cindy",
+        "revoked": "D-Chat recovery is unavailable after an account, connection, or permission change",
+        "busy": "D-Chat recovery is waiting for the current input or recovery to end",
+        "unverified": "D-Chat recovery lacks verified original input records; no input was replayed",
+        "local": "Continue D-Chat recovery on the computer running this connection"
+      }
     },
     "interruptedResumeDialog": {
       "title": "Resume interrupted sessions",

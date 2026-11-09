@@ -13319,7 +13319,16 @@
       "continueAction": "작업 계속",
       "continuing": "계속하는 중…",
       "continueTitle": "중단된 지점부터 작업을 계속합니다(완료된 단계는 반복하지 않습니다)",
-      "dismissTitle": "이 중단 알림 닫기"
+      "dismissTitle": "이 중단 알림 닫기",
+      "checkingRecovery": "복구 확인 중…",
+      "recovery": {
+        "ambiguous": "D-Chat 원래 입력을 하나로 확인할 수 없어 재개하지 않았습니다",
+        "uncertain": "D-Chat 복구가 이미 사용되었거나 출력이 전송되었을 수 있습니다. Cindy에서 원래 세션을 확인하세요",
+        "revoked": "계정, 연결 또는 권한이 변경되어 D-Chat 복구가 거부되었습니다",
+        "busy": "현재 입력 또는 복구가 끝날 때까지 기다려 주세요",
+        "unverified": "검증할 D-Chat 원래 입력 기록이 없어 입력을 다시 보내지 않았습니다",
+        "local": "이 연결을 실행 중인 컴퓨터에서 D-Chat 세션을 계속하세요"
+      }
     },
     "interruptedResumeDialog": {
       "title": "중단된 세션 이어서 하기",

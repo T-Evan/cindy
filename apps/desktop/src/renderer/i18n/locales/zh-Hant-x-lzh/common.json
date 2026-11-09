@@ -13310,7 +13310,16 @@
       "continueAction": "續差事",
       "continuing": "方續…",
       "continueTitle": "自中斷處續成差事（已畢之步不復重行）",
-      "dismissTitle": "闔此中斷之示"
+      "dismissTitle": "闔此中斷之示",
+      "checkingRecovery": "正在核驗恢復…",
+      "recovery": {
+        "ambiguous": "D-Chat 來由未明，未續原輸入",
+        "uncertain": "D-Chat 原輸入已領或已試輸出，請於 Cindy 查原差事",
+        "revoked": "帳號、連線或權限有變，D-Chat 不予恢復",
+        "busy": "原輸入或恢復未畢，請稍候再續",
+        "unverified": "D-Chat 原輸入無據，未重投",
+        "local": "請於執行此連線之電腦續 D-Chat 差事"
+      }
     },
     "interruptedResumeDialog": {
       "title": "續前番中斷之差事",

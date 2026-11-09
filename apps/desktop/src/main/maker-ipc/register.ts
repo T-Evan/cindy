@@ -13,6 +13,7 @@ import { pagePermissionGrants } from '../mcp-apps/pagePermissions.js';
 import { setPluginPageToolRunner } from '../mcp-integrations/plugin-app-registry.js';
 import { getCindyGhostsMcpDeps } from '../mcp-integrations/ghost.js';
 import { pluginAppResult } from '../mcp-apps/pluginCards.js';
+import { APP_EXIT_RECOVERY_POLICY, appExitInputRecoveryPolicy, claimAppExitInputRecovery, assertAppExitRecoveryUsesQueue } from './appExitInputRecovery';
 import { inputRecoveryRequiresContinuation, noteInputRecoveryIntent, noteHostInputContinuation, reserveInputRecovery, confirmInputRecovery, cancelInputRecovery } from './inputRecoverySignal';
 import { restorePluginPageSession } from '../mcp-apps/pluginPageCall.js';
 import { resumeInterruptedScheduleRun } from '../scheduler-host/index.js';
@@ -19930,6 +19931,12 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     },
     {
       sendToAgentAccepted: async (sessionId, message, createOpts, sendOpts) => {
+        try {
+          const prompt = typeof message === 'string' ? message : message && typeof message === 'object' && 'content' in message ? message.content : undefined;
+          assertAppExitRecoveryUsesQueue(sessionId, prompt);
+          if (prompt !== CONTINUE_AFTER_APP_EXIT_PROMPT) cancelInputRecovery(sessionId);
+        }
+        catch (error) { throwIpcError('PRECONDITION_FAILED', error instanceof Error ? error.message : 'DCHAT_RECOVERY_QUEUE_REQUIRED'); }
         // Only fresh user IPC waits, before taking any send/restart fence.
         // Internal continuations and turn cleanup must remain able to finish.
         const owner = getCurrentDbClientSnapshot();
@@ -20589,7 +20596,8 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   const inputCoordinator: AgentInputCoordinator = new AgentInputCoordinator({
     sendToAgent: async (sessionId, message, createOpts, sendOpts) => {
       try {
-        const result = await sendToAgentAccepted(sessionId, message, createOpts, sendOpts);
+        const recoveryPolicy = appExitInputRecoveryPolicy(sessionId, sendOpts.persistUserMessage?.clientId ?? '');
+        const result = await sendToAgentAccepted(sessionId, message, createOpts, recoveryPolicy ? { ...sendOpts, [APP_EXIT_RECOVERY_POLICY]: recoveryPolicy } : sendOpts);
         await orcaInterAgentDispatcher.settleQueuedOrcaInterAgentAcceptedCallback(
           sessionId,
           sendOpts,
@@ -22328,7 +22336,13 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
           });
         };
         let projection: ReturnType<typeof enqueueInput> | undefined;
-        if (queued.text === CONTINUE_AFTER_APP_EXIT_PROMPT
+        const dchatRecovery = await claimAppExitInputRecovery(sid, queued.clientId, queued.text, () => {
+          assertCurrentInputGeneration();
+          if (deviceLinkInvoke) throw new Error('DCHAT_RECOVERY_LOCAL_REQUIRED');
+          if (!inputCoordinator.canClaimAppExitRecovery(sid)) throw new Error('DCHAT_RECOVERY_BUSY');
+        });
+        if (dchatRecovery) projection = enqueueInput(queued);
+        if (!dchatRecovery && queued.text === CONTINUE_AFTER_APP_EXIT_PROMPT
           && !(deviceLinkInvoke && isAutomaticInputOriginKind(parsed.origin?.kind))) {
           assertCurrentInputGeneration();
           if (inputOwner !== getCurrentDbClientSnapshot()) throwIpcError('PRECONDITION_FAILED', 'Account changed before input');
@@ -22410,11 +22424,13 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         return projection;
       } catch (err) {
         if (!acceptedByCoordinator) {
+          cancelInputRecovery(sid, parsed.clientId);
           await materialized.cleanupBeforeAcceptance?.();
           if (attachmentOwnerId) {
             await discardSpecificQueuedAttachmentOwnership(sid, parsed.clientId, attachmentOwnerId);
           }
         } else markQueuedAttachmentDurableAfterSnapshot(sid, parsed.clientId, attachmentOwnerId);
+        if (err instanceof Error && /^DCHAT_[A-Z_]+$/.test(err.message)) throwIpcError('PRECONDITION_FAILED', err.message);
         throw err;
       }
     },

@@ -13456,7 +13456,16 @@
       "continueAction": "Continuer la tâche",
       "continuing": "Reprise…",
       "continueTitle": "Reprendre là où la tâche s'est arrêtée (les étapes terminées ne seront pas répétées)",
-      "dismissTitle": "Fermer cet avis d'interruption"
+      "dismissTitle": "Fermer cet avis d'interruption",
+      "checkingRecovery": "Vérification de la reprise…",
+      "recovery": {
+        "ambiguous": "Plusieurs entrées peuvent être à l’origine de cette reprise D-Chat ; aucune n’a été reprise",
+        "uncertain": "La reprise D-Chat a déjà été prise en charge ou une sortie a pu être envoyée ; vérifiez la session d’origine dans Cindy",
+        "revoked": "La reprise D-Chat est refusée après un changement de compte, de connexion ou d’autorisation",
+        "busy": "Attendez la fin de l’entrée ou de la reprise en cours",
+        "unverified": "Les données de l’entrée D-Chat d’origine ne sont pas vérifiables ; aucune entrée n’a été renvoyée",
+        "local": "Reprenez la session D-Chat sur l’ordinateur qui exécute cette connexion"
+      }
     },
     "interruptedResumeDialog": {
       "title": "Reprendre les sessions interrompues",

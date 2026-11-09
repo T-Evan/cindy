@@ -11,6 +11,8 @@ export interface DchatReceipt {
   /** Stable host configuration lease; absent legacy receipts cannot claim a new lease. */
   authorizationKey?: string;
   execution?: { sessionId: string; clientId: string; instanceId?: string; turnGeneration?: number };
+  principal?: { senderId: string; isOwner: boolean };
+  recoveryBlocked?: true;
   nativeTerminal?: 'done' | 'error' | 'aborted';
   recovery?: { status: 'interrupted' | 'reserved' | 'running'; sourceClientId?: string };
   outputs: Record<string, { state: 'sending' | 'sent' | 'unknown'; messageId?: string }>;
@@ -35,6 +37,8 @@ function validReceipt(value: unknown): value is DchatReceipt {
     && !!r.destination && ['accountId', 'connectionId', 'botId', 'chatId'].every(k => validId(r.destination[k as keyof DchatDestination]))
     && typeof r.destination.topicId === 'string' && r.destination.topicId.length <= 2048
     && (r.execution === undefined || (!!r.execution && validId(r.execution.sessionId) && validId(r.execution.clientId)))
+    && (r.recoveryBlocked === undefined || r.recoveryBlocked === true)
+    && (r.principal === undefined || (!!r.principal && validId(r.principal.senderId) && typeof r.principal.isOwner === 'boolean'))
     && (r.recovery === undefined || (!!r.recovery && ['interrupted', 'reserved', 'running'].includes(r.recovery.status) && (r.recovery.sourceClientId === undefined || validId(r.recovery.sourceClientId))))
     && (r.nativeTerminal === undefined || ['done', 'error', 'aborted'].includes(r.nativeTerminal))
     && (r.execution?.instanceId === undefined || (validId(r.execution.instanceId) && Number.isSafeInteger(r.execution.turnGeneration) && r.execution.turnGeneration! > 0))
@@ -98,17 +102,25 @@ export class DchatLedger {
     });
   }
   queued(): DchatReceipt[] { return [...this.receipts.values()].filter(r => r.state === 'queued').map(r => structuredClone(r)); }
-  bindExecution(requestKey: string, generation: string, sessionId: string, clientId: string, native?: { instanceId: string; turnGeneration: number }): void {
+  bindExecution(requestKey: string, generation: string, sessionId: string, clientId: string, native?: { instanceId: string; turnGeneration: number }, principal?: { senderId: string; isOwner: boolean }): void {
     if (!validId(sessionId) || !validId(clientId) || (native && (!validId(native.instanceId) || !Number.isSafeInteger(native.turnGeneration) || native.turnGeneration <= 0))) throw new Error('DCHAT_INVALID_EXECUTION');
     this.mutate(() => {
       const row = this.receipts.get(requestKey);
       if (!row || row.generation !== generation || !['reserved', 'queued', 'accepted'].includes(row.state)
         || (row.execution && (row.execution.sessionId !== sessionId || row.execution.clientId !== clientId))) throw new Error('DCHAT_STALE_INPUT');
+      if (principal && (!validId(principal.senderId) || typeof principal.isOwner !== 'boolean')) throw new Error('DCHAT_INVALID_EXECUTION');
+      for (const previous of this.receipts.values()) {
+        if (previous.requestKey !== requestKey && previous.execution?.sessionId === sessionId && previous.execution.clientId !== clientId && !previous.nativeTerminal) previous.recoveryBlocked = true;
+      }
       row.execution = { sessionId, clientId, ...native };
+      if (principal) row.principal = { ...principal };
     });
   }
   executionInputs(): DchatReceipt[] {
     return [...this.receipts.values()].filter(r => r.execution?.instanceId && ['accepted', 'unknown'].includes(r.state)).map(r => structuredClone(r));
+  }
+  supersedeRecovery(requestKey: string): void {
+    this.mutate(() => { const row = this.receipts.get(requestKey); if (row && !row.nativeTerminal) row.recoveryBlocked = true; });
   }
   reattachExecution(requestKey: string, execution: NonNullable<DchatReceipt['execution']>): void {
     this.mutate(() => {
@@ -122,7 +134,7 @@ export class DchatLedger {
   adoptExecution(requestKey: string, sourceClientId: string, execution: NonNullable<DchatReceipt['execution']>): DchatReceipt {
     return this.mutate(() => {
       const row = this.receipts.get(requestKey);
-      if (!row || !['accepted', 'unknown'].includes(row.state) || row.execution?.clientId !== sourceClientId
+      if (!row || row.recoveryBlocked || !['accepted', 'unknown'].includes(row.state) || row.execution?.clientId !== sourceClientId
         || row.execution.sessionId !== execution.sessionId || row.nativeTerminal || Object.keys(row.outputs).length
         || !validId(execution.clientId) || !validId(execution.instanceId) || !Number.isSafeInteger(execution.turnGeneration) || execution.turnGeneration! <= 0
         || sourceClientId === execution.clientId) throw new Error('DCHAT_RECOVERY_UNVERIFIED');

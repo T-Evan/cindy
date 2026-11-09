@@ -1,12 +1,17 @@
 import path from 'node:path';
+import { onAppExitInputRecovery } from '../../maker-ipc/appExitInputRecovery';
+import { createDchatManualRecovery } from './manualRecovery';
+import { DchatRecoveryClaims, dchatRecoveryConnectionIds } from './recoveryClaim';
+import { beginChannelToolScope } from '../shared/channelToolScope';
+import { channelForceConfirmToolCall } from '../shared/channelToolPolicy';
 import { onInputRecovery } from '../../maker-ipc/inputRecoverySignal';
 import { createHash, randomUUID } from 'node:crypto';
 import { getMaker } from '../../maker-host';
 import { createDchatExecutionObserver, createDchatRecoveryListener } from './executionObserver';
-import { eq } from 'drizzle-orm';
-import { DchatCliReader, DchatMacNative, DchatSqlcipherReader, DchatNativeInlet, parseDchatConfig, type DchatConfig } from '@cindy/im';
+import { and, eq, isNull, ne } from 'drizzle-orm';
+import { DchatIM, DchatCliReader, DchatMacNative, DchatSqlcipherReader, DchatNativeInlet, parseDchatConfig, type DchatConfig } from '@cindy/im';
 import { getDbClient } from '../../localDb/client/current';
-import { botProfiles } from '../../localDb/schema';
+import { botProfiles, botSessionLinks, sessions } from '../../localDb/schema';
 import { createOverrideSettingsFile } from '../../maker-host/override-settings-file';
 import { activeOwnerScopeKey, getActiveAppSession, isAppSessionBoundaryPending } from '../../appSessionState';
 import { createLogger } from '../../logger';
@@ -76,6 +81,7 @@ export async function reloadDchatNativeConnections(): Promise<void> {
 }
 
 export async function stopDchatNativeConnections(): Promise<void> {
+  manualRecovery.stop();
   generation++;
   const previous = running.splice(0);
   await Promise.all(previous.map(async item => {
@@ -157,3 +163,81 @@ export async function startDchatNativeConnections(config: ImOrchestratorConfig):
     }
   }
 }
+
+// Registered even while a native connection is offline: a restored queued
+// continuation must never bypass its durable claim because the reader is closed.
+type RecoveryReceipt = ReturnType<DchatIM['executionInputs']>[number];
+function recoveryDirectory(receipt: RecoveryReceipt): string {
+  return ownerScopedImUserDataPath('dchat', 'native-runtime', receipt.destination.connectionId);
+}
+function claimStore(receipt: RecoveryReceipt): DchatRecoveryClaims {
+  const owner = scope();
+  return new DchatRecoveryClaims(path.join(recoveryDirectory(receipt), 'manual-claims'), () => !!owner && scope() === owner);
+}
+function recoveryRuntime(receipt: RecoveryReceipt) {
+  const item = running.find(r => r.im.botContextId === receipt.destination.connectionId);
+  if (!item || !scope()) throw new Error('DCHAT_RECOVERY_REVOKED');
+  return item;
+}
+const manualRecovery = createDchatManualRecovery({
+  owner: scope,
+  onStopError: () => log.warn('D-Chat recovery cleanup kept its consumed claim; native connection stopping'),
+  sources: sessionId => {
+    const owner = scope();
+    const all = !owner ? [] : dchatRecoveryConnectionIds(ownerScopedImUserDataPath('dchat', 'native-runtime'), () => scope() === owner).flatMap(connectionId => {
+      const item = running.find(r => r.im.botContextId === connectionId);
+      const rows = item ? item.im.executionInputs() : DchatIM.storedExecutionInputs(new DchatPrivateJson(
+        ownerScopedImUserDataPath('dchat', 'native-runtime', connectionId, 'receipts.json'), () => scope() === owner));
+      return rows.filter(row => row.execution?.sessionId === sessionId);
+    });
+    const eligible = all.filter(row => !row.recoveryBlocked);
+    return eligible.length ? eligible : all;
+  },
+  supersede: receipt => {
+    const item = running.find(r => r.im.botContextId === receipt.destination.connectionId);
+    if (item) item.im.supersedeRecovery(receipt.requestKey);
+    else DchatIM.supersedeStoredRecovery(new DchatPrivateJson(path.join(recoveryDirectory(receipt), 'receipts.json'), () => !!scope()), receipt.requestKey);
+  },
+  store: claimStore,
+  claimed: clientId => {
+    const owner = scope(); if (!owner) return null;
+    const values = dchatRecoveryConnectionIds(ownerScopedImUserDataPath('dchat', 'native-runtime'), () => scope() === owner).map(connectionId => new DchatRecoveryClaims(
+      ownerScopedImUserDataPath('dchat', 'native-runtime', connectionId, 'manual-claims'), () => scope() === owner).forClient(clientId)).filter(value => value !== null);
+    if (values.length > 1) throw new Error('DCHAT_RECOVERY_AMBIGUOUS');
+    return values[0] ?? null;
+  },
+  runtime: recoveryRuntime,
+  busy: sessionId => getMaker().getSession(sessionId)?.isTurnRunning() === true,
+  verify: async receipt => {
+    const owner = scope(); if (!owner) throw new Error('DCHAT_ACCOUNT_CHANGED');
+    const binding = readDchatNativeBindings().find(b => b.config.connectionId === receipt.destination.connectionId);
+    if (!binding?.enabled || fingerprint(binding) !== receipt.authorizationKey) throw new Error('DCHAT_RECOVERY_REVOKED');
+    const [row] = await getDbClient().drizzle.select({ botId: botSessionLinks.botId }).from(botSessionLinks)
+      .innerJoin(botProfiles, eq(botProfiles.id, botSessionLinks.botId)).innerJoin(sessions, eq(sessions.id, botSessionLinks.sessionId))
+      .where(and(eq(botSessionLinks.sessionId, receipt.execution!.sessionId), eq(botSessionLinks.botId, receipt.destination.botId),
+        isNull(botSessionLinks.archivedAt), ne(botSessionLinks.role, 'history'), eq(botProfiles.status, 'active'), eq(sessions.status, 'active'), eq(sessions.source, 'bot'))).limit(1);
+    if (scope() !== owner || !row) throw new Error('DCHAT_RECOVERY_REVOKED');
+    await recoveryRuntime(receipt).im.verifyRecoverySource(receipt.requestKey, receipt.execution!.clientId);
+    if (scope() !== owner) throw new Error('DCHAT_ACCOUNT_CHANGED');
+  },
+  policy: receipt => ({ context: { origin: { kind: 'im', channel: 'dchat', taskId: receipt.requestKey } },
+    ...(!receipt.principal?.isOwner ? { turnPermissionPolicy: { origin: { kind: 'im' as const, channel: 'dchat', taskId: receipt.requestKey },
+      autoReviewContext: { requesterAuthority: 'guest' as const, source: 'group' as const }, confirmationSurface: 'desktop' as const,
+      confirmationTimeoutMs: 30 * 60_000, forceConfirmToolCall: channelForceConfirmToolCall } } : {}) }),
+  beginScope: (receipt, identity) => {
+    const item = recoveryRuntime(receipt), chat = readDchatNativeBindings().find(b => b.config.connectionId === receipt.destination.connectionId)?.config.chats.find(c => c.id === receipt.destination.chatId);
+    if (!chat || !receipt.principal) throw new Error('DCHAT_RECOVERY_REVOKED');
+    const release = beginChannelToolScope({ sessionId: identity.sessionId, sessionInstanceId: identity.instanceId, scope: {
+      channel: 'dchat', botId: item.im.botContextId, laneUserId: item.im.laneId(chat.id), chatId: chat.id,
+      chatKind: ['group', 'topic'].includes(chat.kind) ? 'group' : 'direct', companion: true,
+      requesterIsOwner: receipt.principal.isOwner, inputClientId: identity.clientId } });
+    const session = getMaker().getSession(identity.sessionId);
+    const unsubscribe = session?.onEvent(() => {
+      const row = item.im.executionInputs().find(r => r.requestKey === receipt.requestKey);
+      if (row?.nativeTerminal) { release(); unsubscribe?.(); }
+    });
+    return () => { release(); unsubscribe?.(); };
+  },
+});
+onAppExitInputRecovery(manualRecovery.host);
+onInputRecovery(manualRecovery.listener);

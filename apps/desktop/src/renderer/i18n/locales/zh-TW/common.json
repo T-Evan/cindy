@@ -13318,7 +13318,16 @@
       "continueAction": "繼續任務",
       "continuing": "繼續中…",
       "continueTitle": "從中斷處繼續完成任務（不會重複已完成的步驟）",
-      "dismissTitle": "關閉此中斷提示"
+      "dismissTitle": "關閉此中斷提示",
+      "checkingRecovery": "正在核驗恢復…",
+      "recovery": {
+        "ambiguous": "D-Chat 恢復來源不明確，未繼續任何輸入",
+        "uncertain": "D-Chat 原輸入已被領取，或已嘗試輸出；請在 Cindy 檢查原任務",
+        "revoked": "帳號、連線或權限已變更，D-Chat 恢復遭拒",
+        "busy": "目前仍有輸入或恢復未結束，請等待後再繼續",
+        "unverified": "缺少可核驗的 D-Chat 原輸入紀錄，未重送輸入",
+        "local": "請在執行此連線的電腦上繼續 D-Chat 任務"
+      }
     },
     "interruptedResumeDialog": {
       "title": "繼續上次中斷的任務",

@@ -1,3 +1,4 @@
+import { APP_EXIT_RECOVERY_POLICY, type AppExitRecoveryPolicy } from './appExitInputRecovery';
 import { FORWARDED_REQUEST_RECEIPT } from '../../shared/forwardedRequest.js';
 import { teammateRoutineReviewIntent } from '../../shared/botAutonomy.js';
 import type { AutoReviewUserIntent } from '@cindy/maker-core';
@@ -260,6 +261,7 @@ export function revokeTrustedDesktopQueuedOrigin(item: AgentInputQueuedMessage):
 }
 
 type MakerSendOptions = {
+  readonly [APP_EXIT_RECOVERY_POLICY]?: AppExitRecoveryPolicy;
   readonly [PI_CACHE_RECOVERY_EXPECTATION]?: import('@cindy/maker-core').SendOptions[typeof PI_CACHE_RECOVERY_EXPECTATION];
   /** Main-only live card guard, never serialized to queue history or provider options. */
   readonly [MCP_APP_MESSAGE_GUARD]?: McpAppMessageGuard;
@@ -1679,7 +1681,7 @@ export function createMakerSendTransaction(deps: MakerSendTransactionDeps): Make
         !so.fromMobileClient
           ? { origin: { kind: 'desktop' as const }, rawChannelText: trustedDesktopQueueReceipt.text }
           : undefined;
-      const mainOwnedSendContext = so[MAIN_OWNED_SEND_CONTEXT] ?? directDesktopContext;
+      const mainOwnedSendContext = so[APP_EXIT_RECOVERY_POLICY]?.context ?? so[MAIN_OWNED_SEND_CONTEXT] ?? directDesktopContext;
       // Capture before handoff, reconciliation and mobile notes. Identity-bearing channels
       // still use MAIN_OWNED_SEND_CONTEXT.rawChannelText in core; do not mint owner identity.
       const trustedUserText = typeof so[AUTO_REVIEW_SOURCE_CONTENT] === 'string'
@@ -1905,6 +1907,7 @@ export function createMakerSendTransaction(deps: MakerSendTransactionDeps): Make
           throwOnStartFailure: so.throwOnStartFailure,
           ...(so.toolsDisabled === true ? { toolsDisabled: true } : {}),
           turnAttemptToken: so.turnAttemptToken,
+          ...(so[APP_EXIT_RECOVERY_POLICY]?.turnPermissionPolicy ? { turnPermissionPolicy: so[APP_EXIT_RECOVERY_POLICY]!.turnPermissionPolicy } : {}),
           signal: so.signal,
           [PI_CACHE_RECOVERY_EXPECTATION]: so[PI_CACHE_RECOVERY_EXPECTATION],
           ...(so.onVendorTurnReserved ? { onTurnReserved: so.onVendorTurnReserved } : {}),

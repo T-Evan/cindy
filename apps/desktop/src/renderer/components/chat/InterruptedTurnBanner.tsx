@@ -45,11 +45,14 @@ import { Button } from '@/components/ui/button';
 export function InterruptedTurnBanner({
   onContinue,
   onDismiss,
+  failure,
   className,
   style,
 }: {
   /** 「继续任务」——上层负责发送隐藏续跑指令并隐藏本条。 */
   onContinue: () => Promise<void> | void;
+  /** Main recovery rejection, already decoded and localized by the caller. */
+  failure?: string;
   /** 「忽略」——上层负责持久化 dismissed 并隐藏本条。 */
   onDismiss: () => void;
   className?: string;
@@ -75,7 +78,7 @@ export function InterruptedTurnBanner({
       data-testid="interrupted-turn-banner"
       data-banner-kind="interrupted"
       icon={<CirclePause size={16} />}
-      message={t('chat.interruptedBanner.text')}
+      message={sending ? t('chat.interruptedBanner.checkingRecovery') : failure ?? t('chat.interruptedBanner.text')}
       onDismiss={onDismiss}
       dismissLabel={t('chat.interruptedBanner.dismissTitle')}
       actions={
@@ -87,7 +90,7 @@ export function InterruptedTurnBanner({
           title={t('chat.interruptedBanner.continueTitle')}
         >
           <Play size={12} />
-          {t('chat.interruptedBanner.continueAction')}
+          {t('chat.interruptedBanner.' + (sending ? 'checkingRecovery' : 'continueAction'))}
         </Button>
       }
     />

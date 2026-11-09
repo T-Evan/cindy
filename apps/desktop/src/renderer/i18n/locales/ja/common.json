@@ -13319,7 +13319,16 @@
       "continueAction": "タスクを再開",
       "continuing": "再開中…",
       "continueTitle": "中断した箇所からタスクを続行します（完了済みのステップは繰り返しません）",
-      "dismissTitle": "この中断通知を閉じる"
+      "dismissTitle": "この中断通知を閉じる",
+      "checkingRecovery": "復旧を確認中…",
+      "recovery": {
+        "ambiguous": "D-Chat の元の入力を一意に確認できないため、再開しませんでした",
+        "uncertain": "D-Chat の復旧は使用済み、または出力済みの可能性があります。Cindy で元のセッションを確認してください",
+        "revoked": "アカウント、接続、権限の変更により D-Chat の復旧を拒否しました",
+        "busy": "現在の入力または復旧が終わるまでお待ちください",
+        "unverified": "D-Chat の元の入力を確認できる記録がないため、再送しませんでした",
+        "local": "この接続を実行しているコンピューターで D-Chat のセッションを再開してください"
+      }
     },
     "interruptedResumeDialog": {
       "title": "中断したセッションを再開",

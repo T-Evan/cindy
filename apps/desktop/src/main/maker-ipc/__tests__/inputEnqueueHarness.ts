@@ -1,3 +1,5 @@
+import { claimAppExitInputRecovery } from '../appExitInputRecovery.js';
+import { cancelInputRecovery } from '../inputRecoverySignal.js';
 import { readFileSync } from 'node:fs';
 import { ScriptTarget, transpileModule } from 'typescript';
 import { CONTINUE_AFTER_APP_EXIT_PROMPT } from '@cindy/maker-shared/synthetic-trigger';
@@ -33,6 +35,7 @@ export function createInputEnqueueHarness(coordinator: AgentInputCoordinator, op
   const preparations = new Map<string, Pick<SchedulerQueuedPromptRequest, 'onPreparing' | 'onPreparationFailed'>>();
   const bindings = {
     inputCoordinator: coordinator,
+    claimAppExitInputRecovery, cancelInputRecovery,
     CONTINUE_AFTER_APP_EXIT_PROMPT,
     markManualSchedulerContinuation,
     resumeInterruptedScheduleRun,

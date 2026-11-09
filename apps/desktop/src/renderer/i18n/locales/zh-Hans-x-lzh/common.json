@@ -13310,7 +13310,16 @@
       "continueAction": "续差事",
       "continuing": "方续…",
       "continueTitle": "自中断处续成差事（已毕之步不复重行）",
-      "dismissTitle": "阖此中断之示"
+      "dismissTitle": "阖此中断之示",
+      "checkingRecovery": "正在核验恢复…",
+      "recovery": {
+        "ambiguous": "D-Chat 来由未明，未续原输入",
+        "uncertain": "D-Chat 原输入已领或已试输出，请于 Cindy 查原差事",
+        "revoked": "账号、连接或权限有变，D-Chat 不予恢复",
+        "busy": "原输入或恢复未毕，请稍候再续",
+        "unverified": "D-Chat 原输入无据，未重投",
+        "local": "请于运行此连接之电脑续 D-Chat 差事"
+      }
     },
     "interruptedResumeDialog": {
       "title": "续前番中断之差事",

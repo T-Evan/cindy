@@ -36,7 +36,11 @@ scripts/verify-dchat-recovery.mjs 用真实 0600 回执文件与 10 个独立 No
 
 Main-only inputRecoverySignal 接收真实宿主恢复意图、预约和派发确认。silent-stop 自动续跑由宿主提供旧 instanceId/turnGeneration 与新 clientId，预约阶段迁移精确观察器，派发确认后才允许不含正文的原目的地通知；同步终态在确认前只持久记录，取消、后续输入、换账号或撤销阻断。旧代次事件不能结算新输入，续跑终态以原 requestKey 和当前实例/代次清理共享 runner 的旧轮次及交互租约，再释放原忙碌 lane；不 finalize 旧文本，也不清理后续输入。真实 Session.sendHostTurnContinuation 回归覆盖预约到派发和后续排队输入。协调器 active-turn retry 仅在它本身持有原 clientId 时产生精确接管意图；渠道未知输入强制 continuation-only，避免零可见输出时重发可能产生副作用的正文。
 
-这仍不代表活跃模型可跨整个应用进程重启自动续跑。普通 shared IM runner 直接 Session.send，应用重启后没有可证明其原输入恢复的通用持久协调器回执；不会从 Session ID、正文或时间猜测，也不会自行重投。新实例/代次缺少精确凭据时标记 interrupted，设置页显示待在 Cindy 核验恢复；只有宿主实际保存并恢复同一 clientId 的 native 恢复入口，且原回执尚无产品终态或任何输出尝试，才可采用预约/确认接管协议。普通 IM 输入跨整个应用重启后的手动续跑接管仍未提供，不能把低层合成接管脚本当作该产品入口已可用。恢复输出限不含正文的状态通知，不导出伙伴历史。合成跨模块回归已实际调用 pluginCompanionSlot 的 history/reply、bot 排除规则与 assistantReplyHook，再验证旁路出站拒绝且仅当前 native 按次结果发送。该覆盖不等于真实已装插件/真实伙伴的产品验收。
+普通 shared IM 的完整应用重启现已接入本机显式「继续任务」入口。INPUT_ENQUEUE 在 CONTINUE_AFTER_APP_EXIT_PROMPT 上扫描当前 owner 私有持久回执，仅有一个未被后续输入取代的来源才可 claim；不按历史正文、时间或最近 Session 猜测。回执必须具备原 requestKey/clientId、Session/bot、配置 revision 指纹、账号、原实例/代次与 Main 记录的触发者权限。新建 manual-claims 的 wx 文件永久消费原输入，客户端索引在 enqueue 前持久化；损坏、半写或已消费的 claim 不按时间/PID 回收。配置被替换的连接目录仍参与恢复凭据发现，不能因当前设置中已无该连接而绕过旧队列 fence。
+
+本机显式 Continue 只派发通用续跑指令，不重放原消息或副作用输入。Main 重新核对伙伴 Session 关联、账号、配置与群成员；拒绝同任务多候选、终态已结算、有任何输出尝试、忙碌/queue-head 恢复、账号切换、撤销及远控恢复。只有新的宿主实际预留原生 instance/generation 时，才在 provider 派发前接管观察与原权限范围；接受派发后确认 claim。来宾仍经原桌面确认，不晋升主人。恢复仅沿原目的地通知一次不含正文的成功/失败/取消状态；不导出原伙伴历史或私有回复，后续输入的代次不能结算旧输入。预约后取消/崩溃保留 interrupted，重启后的已 claim 队列在 provider 前明确拒绝，不能自动重放或重新 claim。界面保留等待、核验中及本地化拒绝原因。
+
+scripts/verify-dchat-manual-recovery.mjs 使用真实私有文件和独立 Node 进程验证 claim 竞争、enqueue/预约/派发/确认崩溃窗、取消、撤销、失败与未知发送。独立进程还执行生产 INPUT_ENQUEUE handler 和真实 AgentInputCoordinator，合成 provider 经实际预约回调产生新原生代次，验证原输入恢复及后续输入不串结果；数据库与 Electron 服务、provider、D-Chat 传输仍为测试适配。它不证明真实模型、Mac 接口或完整 Electron 应用跨进程恢复已实测。应用不自动恢复活跃模型；不确定状态需人工处理，不回收 claim 重试。合成跨模块 history/reply、hook 排除与按次输出既有证据继续保留，不能等同真实已装插件/原伙伴验收。
 
 主人 /stop 可越过忙碌队列进入已有共享停止入口，清理本 lane 排队回执，不替换原输出锚点。所有交互指定 Cindy desktop 原生路由，包括主人提问与访客审批；D-Chat 正文不能批准工具请求。取消/失败沿用绑定终态。真实待输入、取消、长任务与伙伴记忆工具仍需实际产品验收。
 
@@ -60,11 +64,11 @@ Main-only inputRecoverySignal 接收真实宿主恢复意图、预约和派发�
 
 公开基线 6ef269cd62682236e7e4128c5802572023502285，Apache-2.0，与调查时安装版提交不同。QChat 0.4.6 ecc20858bcac488ec030f30f4722139f69b8ec61 仅用于协议事实参考；未复制许可未明源代码、Agent 引擎、依赖、运行数据或凭证。
 
-仍需完成：跨账号主人的可信配对（默认拒绝）、真实版本的完整实时成员返回合同核验、普通 IM 活跃输入跨整个应用进程重启后的可信手动/自动接管、真实已装插件防外传及原伙伴能力验收、Mac 构建与实际本地只读/收发验收。向导仅能保存为 draft，普通自动文字发送需高级配置显式选择 automatic，仍按精确聊天允许范围生效。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
+仍需完成：跨账号主人的可信配对（默认拒绝）、真实版本的完整实时成员返回合同核验、活跃模型跨整个应用进程重启的自动恢复（本次只提供显式手动接管）、真实已装插件防外传及原伙伴能力验收、Mac 构建与实际本地只读/收发验收。向导仅能保存为 draft，普通自动文字发送需高级配置显式选择 automatic，仍按精确聊天允许范围生效。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
 
 
 ## Mac 最小接手要求
 
 使用同一 Fork 功能分支及其完整源码，不用 Linux deb 替代 Mac 包。工具链要求 Node >=22.12、pnpm 10.33.2、Git LFS、Xcode Command Line Tools 与本架构可用的 SQLCipher 4 CLI。沿仓库 environment-setup 和 desktop-development 准备依赖；不全局替换已有工具，不复制 Linux node_modules。打包走仓库 pnpm build / desktop forge 包装，签名、公证与真实本地接口必须在 Mac 独立记录。
 
-先运行定向单测和 scripts/verify-dchat-sqlcipher.mjs 的加密合成库验证，再用安全启动包装进入独立 --mock / --isolated-auth 沙箱。真实只读验收另需本机主人明确选择 D-Chat CLI、D-Chat 4.27.x 组件、chat39 所在数据库根与目标聊天。密钥自动有预算地探测，不填写到 UI、命令参数、报告或 Git。保持正式 profile、账号、伙伴配置与 D-Chat 进程不变；本任务仍未授权真实发送或补丁。只读验收与真实伙伴执行须分别记录，不能用合成库通过代替。
+先运行定向单测和 scripts/verify-dchat-sqlcipher.mjs 的加密合成库验证，再用安全启动包装进入独立 --mock / --isolated-auth 沙箱。已有 Mac 本地库只读授权继续有效；本机接手需确认要使用的 D-Chat CLI、D-Chat 4.27.x 组件和 chat39 数据库根，成员目录只读验收还需主人选定一个明确目标聊天。本次远端 Linux 不读取任意真实联系人。密钥自动有预算地探测，不填写到 UI、命令参数、报告或 Git。保持正式 profile、账号、伙伴配置与 D-Chat 进程不变；本任务仍未授权真实发送或补丁。只读验收与真实伙伴执行须分别记录，不能用合成库通过代替。

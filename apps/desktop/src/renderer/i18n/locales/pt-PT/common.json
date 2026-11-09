@@ -13456,7 +13456,16 @@
       "continueAction": "Continuar tarefa",
       "continuing": "A continuar…",
       "continueTitle": "Continuar de onde a tarefa ficou (os passos concluídos não serão repetidos)",
-      "dismissTitle": "Dispensar este aviso de interrupção"
+      "dismissTitle": "Dispensar este aviso de interrupção",
+      "checkingRecovery": "A verificar a retoma…",
+      "recovery": {
+        "ambiguous": "Existem várias entradas possíveis para esta retoma do D-Chat; nenhuma foi retomada",
+        "uncertain": "A retoma do D-Chat já foi utilizada ou poderá ter sido enviada uma resposta; verifique a sessão original no Cindy",
+        "revoked": "A retoma do D-Chat foi recusada após uma alteração de conta, ligação ou permissões",
+        "busy": "Aguarde até terminar a entrada ou retoma atual",
+        "unverified": "Não existem registos verificáveis da entrada original do D-Chat; nenhuma entrada foi reenviada",
+        "local": "Continue a sessão do D-Chat no computador que executa esta ligação"
+      }
     },
     "interruptedResumeDialog": {
       "title": "Retomar sessões interrompidas",

@@ -129,3 +129,36 @@ production profile migrations or replacement of an existing Cindy instance occur
 Mac 包及实际伙伴记忆/技能/工具执行仍未完成。没有独立 reviewer 验收。
 最终构建、启动与截图结果以交付目录内的验收记录及原始日志为准，
 不得把可编译的传输模块或可保存的草稿当作已启用的 D-Chat 功能。
+
+
+## 2026-11-10 恢复验收
+
+运行资产已补齐：sqlite-vec 不再是 LFS 指针；固定版本 Claude、Codex、
+ripgrep 与 Pi 均通过运行资产预检。未替换整机 Node/pnpm，未修改现有 Cindy。
+
+页面专项验收先复现两个问题：异步翻译结果未等待，导致定位器收到 Promise；
+模拟宿主每次提供新 namespace 视图，导致依赖该对象的 effect 反复读取草稿，
+阻塞保存交互。现改为等待翻译并依赖稳定的读取方法。
+真实组件在合成宿主中的 48 个组合通过（12 语言、Light/Dark、360/720 宽度），
+耗时 60.1 秒；相关 ESLint 通过。它验证页面交互，不证明真实 IPC 或原生接入。
+已目检中文窄屏深色与英文宽屏保存回执；首张 overview 中日文、韩文缺字，
+属于本环境字体限制，不能据自动化通过宣称这两种语言视觉验收通过。
+全量 changed 页面扫描在 600 秒超时，保留为未通过记录。
+
+补齐运行资产后的 Linux amd64 构建成功；后续界面修复后的最终产物、源码 SHA
+和校验值以交付目录 SOURCE.json / SHA256SUMS 为准。历史构建不冒充最终版本。
+完整隔离 mock 启动先遇到 root Electron sandbox 错误；仅对无账号测试子进程
+使用仓库 packaged smoke 同样采用的 ELECTRON_DISABLE_SANDBOX 环境开关后，
+应用进程创建了窗口，但安全包装仍返回 STARTUP_TIMEOUT，不能宣称 ready。
+后续独立 D-Bus 验证及清理结果记在交付报告中，不据“窗口已创建”判成功。
+
+本轮未新增独立 Agent / 子任务，未真实发信、登录、应用 D-Chat 补丁、
+修改正式伙伴或共享 profile。原生消息入口、SQLCipher reader、成员与召唤
+真实性验证、持久长任务跟进、完整待输入交互依然未完成，不能交付为可用接入。
+原伙伴真实记忆、技能、工具及审批执行没有验收证据。
+
+独立 D-Bus 的第三次启动同样返回 STARTUP_TIMEOUT。只读 CDP 捕获到本次
+测试窗口（localhost:5174，title=Cindy），截图为空白、body 为空，未到主界面。
+Desktop 修复后的类型检查通过；没有把这张空白截图认作通过证据。
+本轮没有可用 lh CLI，未生成或发布其结构化验收页面；原始 UI summary、
+截图、退出状态和中文报告随交付保留，不宣称独立 reviewer 或完整产品验收通过。

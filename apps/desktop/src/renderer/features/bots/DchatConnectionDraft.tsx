@@ -9,6 +9,7 @@ import { useBotTranslation } from './botPronounContext';
 export function DchatConnectionDraft({ botId }: { botId: string }) {
   const { t } = useBotTranslation();
   const api = window.electronAPI?.dchatConnection;
+  const getDraft = api?.get;
   const [view, setView] = useState<DchatConnectionView | null>(null);
   const [draft, setDraft] = useState<Draft>({ botId, accountId: '', ownerId: '', chatId: '' });
   const [message, setMessage] = useState<'saved' | 'failed' | null>(null);
@@ -16,12 +17,12 @@ export function DchatConnectionDraft({ botId }: { botId: string }) {
   const submitting = useRef(false);
   useEffect(() => {
     let active = true;
-    if (api) void api.get(botId).then(value => {
+    if (getDraft) void getDraft(botId).then(value => {
       if (!active) return;
       setView(value); if (value.draft) setDraft(value.draft);
     }).catch(() => { if (active) setMessage('failed'); });
     return () => { active = false; };
-  }, [api, botId]);
+  }, [getDraft, botId]);
   if (!api) return null;
   const prefix = 'bots.channels.dchat';
   const valid = [draft.accountId, draft.ownerId, draft.chatId].every(value => /^\d{1,128}$/.test(value));

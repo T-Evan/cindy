@@ -11,6 +11,7 @@ export type { DchatLedgerStorage } from './ledger.js';
 
 export interface DchatIMOptions {
   config: DchatConfig; native: DchatNative; storage: DchatLedgerStorage;
+  current?(): boolean;
   bindingAvailable(botId: string): Promise<boolean>;
   draft(input: { requestKey: string; chatId: string; text: string }): Promise<void>;
 }
@@ -19,6 +20,7 @@ export class DchatIM extends BaseIM implements TextChannelIM {
   private status: IMStatus = { kind: 'idle' };
   private readonly messages = new Set<(event: IMMessageEvent) => void>();
   private readonly statuses = new Set<(status: IMStatus) => void>();
+  private readonly queued = new Map<string, DchatDispatch[]>();
   private readonly active = new Map<string, DchatDispatch>();
   private readonly byMessage = new Map<string, DchatDispatch>();
   private transport: DchatTransport | null = null;
@@ -45,13 +47,14 @@ export class DchatIM extends BaseIM implements TextChannelIM {
       if (!this.current(generation) || identity.accountId !== this.options.config.accountId || !await this.options.bindingAvailable(this.options.config.botId)) throw new Error('unavailable');
       if (!this.current(generation)) return;
       this.transport = new DchatTransport(this.options.config, { ...this.options, dispatch: value => this.dispatch(value),
+        current: () => this.current(generation) && this.options.current?.() !== false,
         bindingAvailable: async botId => this.current(generation) && await this.options.bindingAvailable(botId) && this.current(generation),
         draft: input => this.options.draft({ requestKey: input.requestKey, chatId: input.destination.chatId, text: input.text }) });
       this.setStatus({ kind: 'connected', appId: this.botContextId });
     } catch { if (this.current(generation)) this.setStatus({ kind: 'error', reason: 'DCHAT_CONNECTION_UNAVAILABLE' }); }
   }
   async dispose(): Promise<void> {
-    this.generation++; this.transport?.disable(); this.transport = null; this.active.clear(); this.byMessage.clear();
+    this.generation++; this.transport?.disable(); this.transport = null; this.active.clear(); this.byMessage.clear(); this.queued.clear();
     this.setStatus({ kind: 'idle' });
   }
   async receive(input: DchatInbound): Promise<string> {
@@ -60,11 +63,25 @@ export class DchatIM extends BaseIM implements TextChannelIM {
   }
   private async dispatch(value: DchatDispatch): Promise<void> {
     if (!value.isCurrent() || !this.current(this.generation) || !this.messages.size) throw new Error('DCHAT_RUNNER_UNAVAILABLE');
+    if (!await this.transport?.canDispatch(value) || !value.isCurrent() || !this.current(this.generation)) throw new Error('DCHAT_STALE_INPUT');
     const lane = this.laneId(value.chat.id);
-    // A second input must never replace the first output destination. The host
-    // coordinator owns queueing; this bounded facade currently rejects busy lanes.
-    if (this.active.has(lane)) throw new Error('DCHAT_LANE_BUSY');
-    this.active.set(lane, value); this.byMessage.set(value.receipt.requestKey, value);
+    const control = value.requesterIsOwner && value.inbound.text.trim() === '/stop';
+    // Queue only inputs that have never crossed the shared runner. Durable state
+    // holds IDs, not bodies; restart reloads the exact message through the reader.
+    if (this.active.has(lane) && !control) {
+      const queue = this.queued.get(lane) ?? [];
+      if (queue.length >= 100) throw new Error('DCHAT_QUEUE_FULL');
+      this.transport!.ledger.transition(value.receipt.requestKey, value.receipt.generation, 'queued');
+      queue.push(value); this.queued.set(lane, queue); return;
+    }
+    if (!control) { this.active.set(lane, value); this.byMessage.set(value.receipt.requestKey, value); }
+    else {
+      // Trusted owner stop goes straight to the existing shared command handler;
+      // it cannot take the running input's destination or become an output anchor.
+      const queue = this.queued.get(lane) ?? []; this.queued.delete(lane);
+      for (const pending of queue) this.transport?.ledger.transition(pending.receipt.requestKey, pending.receipt.generation, 'aborted');
+      this.transport?.finish(value.receipt.requestKey, value.receipt.generation, 'done');
+    }
     const event: IMMessageEvent = { channelName: 'dchat', senderId: lane, chatId: value.chat.id, contextId: this.botContextId,
       messageId: value.receipt.requestKey, text: value.inbound.text, attachments: [], unsupported: [],
       invoked: value.inbound.invoked, speaker: { id: value.inbound.senderId, name: value.inbound.senderName, isOwner: value.requesterIsOwner },
@@ -72,15 +89,34 @@ export class DchatIM extends BaseIM implements TextChannelIM {
     for (const callback of this.messages) callback(event);
   }
   private rejectWithoutExecution(value: DchatDispatch): void {
-    if (this.transport?.ledger.read(value.receipt.requestKey)?.state === 'reserved') {
-      this.transport.finish(value.receipt.requestKey, value.receipt.generation, 'done');
-      this.active.delete(this.laneId(value.chat.id)); this.byMessage.delete(value.receipt.requestKey);
+    if (['reserved', 'queued'].includes(this.transport?.ledger.read(value.receipt.requestKey)?.state ?? '')) {
+      this.transport?.finish(value.receipt.requestKey, value.receipt.generation, 'done');
+      this.release(this.laneId(value.chat.id), value.receipt.requestKey);
     }
   }
   private accept(value: DchatDispatch): void {
-    if (this.transport?.ledger.read(value.receipt.requestKey)?.state === 'reserved') this.transport.acknowledge(value.receipt.requestKey, value.receipt.generation);
+    if (['reserved', 'queued'].includes(this.transport?.ledger.read(value.receipt.requestKey)?.state ?? '')) this.transport?.acknowledge(value.receipt.requestKey, value.receipt.generation);
   }
-  acknowledgeIncoming(messageId: string): void { const value = this.byMessage.get(messageId); if (value) this.accept(value); }
+  acknowledgeIncoming(messageId: string, sessionId?: string, clientId?: string): void {
+    const value = this.byMessage.get(messageId);
+    if (value) {
+      if (sessionId && clientId) this.transport!.ledger.bindExecution(value.receipt.requestKey, value.receipt.generation, sessionId, clientId);
+      this.accept(value);
+    }
+  }
+  queuedInputs() { return this.transport?.ledger.queued() ?? []; }
+  private release(lane: string, messageId: string): void {
+    this.active.delete(lane); this.byMessage.delete(messageId);
+    const queue = this.queued.get(lane); const next = queue?.shift();
+    if (!queue?.length) this.queued.delete(lane);
+    if (next && next.isCurrent()) {
+      void this.dispatch(next).catch(() => {
+        const row = this.transport?.ledger.read(next.receipt.requestKey);
+        if (row && ['reserved', 'queued'].includes(row.state)) this.transport?.ledger.transition(row.requestKey, row.generation, 'unknown');
+        this.release(lane, next.receipt.requestKey);
+      });
+    }
+  }
   laneId(chatId: string): string { return Buffer.from(JSON.stringify([this.botContextId, chatId])).toString('base64url'); }
   chatForLane(lane: string) { return this.options.config.chats.find(chat => this.laneId(chat.id) === lane); }
   async commitFinal(output: ImFinalOutput): Promise<void> {
@@ -88,8 +124,8 @@ export class DchatIM extends BaseIM implements TextChannelIM {
     if (!value || output.inputMessageId !== value.receipt.requestKey || !this.transport || !this.current(this.generation)) throw new Error('DCHAT_STALE_OUTPUT');
     try {
       await this.transport.final(value.receipt.requestKey, value.receipt.generation, 'terminal', output.text);
-      this.transport.finish(value.receipt.requestKey, value.receipt.generation, output.terminal);
-    } finally { this.active.delete(output.userId); this.byMessage.delete(value.receipt.requestKey); }
+      this.transport?.finish(value.receipt.requestKey, value.receipt.generation, output.terminal);
+    } finally { this.release(output.userId, value.receipt.requestKey); }
   }
   // Arbitrary side-channel text is deliberately unavailable: all model output
   // must have a durable input and destination. Approvals stay in Cindy.

@@ -4,10 +4,11 @@ import { createHash } from 'node:crypto';
 export interface DchatDestination {
   accountId: string; connectionId: string; botId: string; chatId: string; topicId: string;
 }
-export type DchatInputState = 'reserved' | 'accepted' | 'done' | 'aborted' | 'error' | 'unknown';
+export type DchatInputState = 'reserved' | 'queued' | 'accepted' | 'done' | 'aborted' | 'error' | 'unknown';
 export interface DchatReceipt {
   requestKey: string; messageId: string; destination: DchatDestination;
   generation: string; state: DchatInputState;
+  execution?: { sessionId: string; clientId: string };
   outputs: Record<string, { state: 'sending' | 'sent' | 'unknown'; messageId?: string }>;
 }
 export interface DchatLedgerStorage {
@@ -26,9 +27,10 @@ function validReceipt(value: unknown): value is DchatReceipt {
   if (!value || typeof value !== 'object') return false;
   const r = value as DchatReceipt;
   return validId(r.requestKey) && validId(r.messageId) && validId(r.generation)
-    && ['reserved', 'accepted', 'done', 'aborted', 'error', 'unknown'].includes(r.state)
+    && ['reserved', 'queued', 'accepted', 'done', 'aborted', 'error', 'unknown'].includes(r.state)
     && !!r.destination && ['accountId', 'connectionId', 'botId', 'chatId'].every(k => validId(r.destination[k as keyof DchatDestination]))
     && typeof r.destination.topicId === 'string' && r.destination.topicId.length <= 2048
+    && (r.execution === undefined || (!!r.execution && validId(r.execution.sessionId) && validId(r.execution.clientId)))
     && !!r.outputs && typeof r.outputs === 'object' && !Array.isArray(r.outputs)
     && Object.entries(r.outputs).every(([k, o]) => /^[a-f0-9]{64}$/.test(k) && !!o && ['sending', 'sent', 'unknown'].includes(o.state)
       && (o.messageId === undefined || validId(o.messageId)));
@@ -66,18 +68,34 @@ export class DchatLedger {
       || typeof destination.topicId !== 'string' || destination.topicId.length > 2048) throw new Error('DCHAT_INVALID_IDENTITY');
     // botId is intentionally excluded: rebinding must not replay an old input.
     const requestKey = digest([destination.accountId, destination.connectionId, destination.chatId, destination.topicId, messageId]);
-    if (this.receipts.has(requestKey)) return null;
+    const existing = this.receipts.get(requestKey);
+    if (existing) {
+      // Only a durably queued, never-dispatched input can be resumed. Bodies are
+      // re-read by the native reader and revalidated against the current account.
+      if (existing.state !== 'queued' || existing.generation === generation || !same(existing.destination, destination) || existing.execution) return null;
+      return this.mutate(() => { existing.generation = generation; existing.state = 'reserved'; return structuredClone(existing); });
+    }
     return this.mutate(() => {
       const row: DchatReceipt = { requestKey, messageId, destination: structuredClone(destination), generation, state: 'reserved', outputs: {} };
       this.receipts.set(requestKey, row); return structuredClone(row);
     });
   }
   read(requestKey: string): DchatReceipt | null { const row = this.receipts.get(requestKey); return row ? structuredClone(row) : null; }
-  transition(requestKey: string, generation: string, state: 'accepted' | 'done' | 'aborted' | 'error' | 'unknown'): void {
+  transition(requestKey: string, generation: string, state: 'queued' | 'accepted' | 'done' | 'aborted' | 'error' | 'unknown'): void {
     this.mutate(() => {
       const row = this.receipts.get(requestKey);
-      if (!row || row.generation !== generation || !['reserved', 'accepted'].includes(row.state)) throw new Error('DCHAT_STALE_INPUT');
+      if (!row || row.generation !== generation || !['reserved', 'queued', 'accepted'].includes(row.state)) throw new Error('DCHAT_STALE_INPUT');
       row.state = state;
+    });
+  }
+  queued(): DchatReceipt[] { return [...this.receipts.values()].filter(r => r.state === 'queued').map(r => structuredClone(r)); }
+  bindExecution(requestKey: string, generation: string, sessionId: string, clientId: string): void {
+    if (!validId(sessionId) || !validId(clientId)) throw new Error('DCHAT_INVALID_EXECUTION');
+    this.mutate(() => {
+      const row = this.receipts.get(requestKey);
+      if (!row || row.generation !== generation || !['reserved', 'queued', 'accepted'].includes(row.state)
+        || (row.execution && (row.execution.sessionId !== sessionId || row.execution.clientId !== clientId))) throw new Error('DCHAT_STALE_INPUT');
+      row.execution = { sessionId, clientId };
     });
   }
   /** Reserve before any send; throwing/timeout is always unknown, never automatically retry. */

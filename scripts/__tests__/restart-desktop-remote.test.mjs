@@ -42,6 +42,7 @@ import {
 	prepareDarwinTerminalLaunch,
 	currentDarwinTerminal,
 	waitForDesktopStartup,
+	resolveDesktopStartupTimeoutMs,
 	shouldRefuseHostedRestart,
 	commandContainsPath,
 	inheritedUserDataBlocksNamedIsolation,
@@ -1871,4 +1872,15 @@ test('whoami attributes a shared personal shell to its business checkout', { ski
   fs.unlinkSync(fixed+'.personal-install.json');
   assert.equal(identifyDesktopProcesses(processes,roots.map(rootDir=>({rootDir,branch:null}))).length,1);
  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+// Production readiness waiter; unit tier. Remote compile+module load can exceed 120 s.
+// Existing tombstone tests cover expiry but not an explicit bounded wait override.
+// Minimum failure: the default budget ignores a requested 300000 ms remote wait.
+test("remote readiness allows a bounded explicit wait without accepting invalid or shorter budgets", () => {
+  assert.equal(resolveDesktopStartupTimeoutMs({}), 120000);
+  assert.equal(resolveDesktopStartupTimeoutMs({ XDT_DESKTOP_STARTUP_TIMEOUT_MS: "300000" }), 300000);
+  for (const value of ["0", "119999", "600001", "NaN", "120000.5"]) {
+    assert.throws(() => resolveDesktopStartupTimeoutMs({ XDT_DESKTOP_STARTUP_TIMEOUT_MS: value }), /must be an integer/);
+  }
 });

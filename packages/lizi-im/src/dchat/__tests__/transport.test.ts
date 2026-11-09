@@ -15,7 +15,7 @@ const input = (chatId = 'dm', senderId = 'owner'): DchatInbound => ({
 function harness(overrides: Partial<DchatConfig> = {}) {
   let data: unknown = null, accountId = 'self', binding = true, capable = true;
   const dispatches: DchatDispatch[] = [], sends: unknown[] = [], contexts: DchatInbound[] = [], drafts: unknown[] = [];
-  const native: DchatNative = { identity: async () => ({ accountId }), capabilities: async () => capable ? ['dchat_im_clean_send_v2'] : [],
+  const native: DchatNative = { identity: async () => ({ accountId }), capabilities: async () => capable ? ['content', 'dchat_im_clean_send_v2'] : [],
     send: async item => { sends.push(item); return { messageId: 'out' }; } };
   const make = () => new DchatTransport({ ...config, ...overrides }, { native,
     storage: { read: () => structuredClone(data), write: value => { data = structuredClone(value); } },
@@ -70,7 +70,7 @@ describe('DchatTransport', () => {
     expect(await h.make().receive(input())).toBe('duplicate'); expect(h.sends).toEqual([]);
   });
   it('keeps clean-send capability mandatory and defaults replies to drafts', async () => {
-    const h = harness(); const t = h.make(); await t.receive(input()); const { receipt } = h.dispatches[0]!;
+    const h = harness({ sendMode: 'clean-v2' }); const t = h.make(); await t.receive(input()); const { receipt } = h.dispatches[0]!;
     t.acknowledge(receipt.requestKey, receipt.generation); h.capable(false);
     await expect(t.final(receipt.requestKey, receipt.generation, 'final', 'text')).rejects.toThrow('DCHAT_CLEAN_SEND_UNAVAILABLE'); expect(h.sends).toEqual([]);
     const d = harness({ replyMode: 'draft' }); const td = d.make(); await td.receive(input()); const rd = d.dispatches[0]!.receipt;

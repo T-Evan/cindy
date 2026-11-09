@@ -15,6 +15,7 @@ import { app, ipcMain, BrowserWindow, net, shell } from 'electron';
 
 import {
   createIM,
+  DchatIM, type DchatIMOptions,
   BlueBubblesIM,
   LocalWebhookReceiver,
   createDiscordIM,
@@ -397,3 +398,6 @@ export function createBotIMessageIM(secretKeyPrefix: string, connectionId: strin
     },
   });
 }
+
+/** D-Chat uses the exact same host/account boundary as other native channels. */
+export function createBotDchatIM(options: DchatIMOptions): DchatIM { return new DchatIM(host, options); }

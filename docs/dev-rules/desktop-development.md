@@ -56,6 +56,8 @@ Global 都落在同一个 dev 沙箱，CN 也落在同一个 CN dev 沙箱；登
 pnpm restart:desktop:remote -- --shared
 ```
 
+远端资源受限或首次编译较慢时，可仅对本次启动设置 `XDT_DESKTOP_STARTUP_TIMEOUT_MS=300000`。默认仍为 120000 毫秒，显式值仅接受 120000–600000 的整数；只延长等待时间，不改变窗口、账号和数据库就绪判据，也不将超时视为成功。
+
 启动命令结束时必须出现一行 `DESKTOP_DEV_VERDICT=ready` 才算成功；看到
 `DESKTOP_DEV_VERDICT=failed` 或根本没有 verdict 行，不得声称开发版已起来。
 失败时把 `code` / `message` 交给用户。若有 `next=` 且用户没有点名必须共享，

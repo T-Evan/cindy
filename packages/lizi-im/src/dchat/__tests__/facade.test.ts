@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DchatIM } from '../index';
 import type { IMHost, IMMessageEvent } from '../../types';
 import type { DchatConfig } from '../config';
@@ -15,7 +15,7 @@ const config: DchatConfig = { accountId: 'self', ownerId: 'owner', connectionId:
 function fixture(overrides: Partial<DchatConfig> = {}) {
   let data: unknown = null; const sends: unknown[] = []; const events: IMMessageEvent[] = [];
   const im = new DchatIM(host, { config: { ...config, ...overrides }, storage: { read: () => data, write: value => { data = structuredClone(value); } },
-    native: { identity: async () => ({ accountId: 'self' }), capabilities: async () => ['dchat_im_clean_send_v2'],
+    native: { identity: async () => ({ accountId: 'self' }), capabilities: async () => ['content', 'dchat_im_clean_send_v2'],
       send: async value => { sends.push(value); return { messageId: 'sent' }; } }, bindingAvailable: async () => true, draft: async () => {} });
   im.onMessage(event => { events.push(event); });
   const receive = (messageId = 'input', chatId = 'dm') => im.receive({ messageId, accountId: 'self', chatId, senderId: 'owner',
@@ -37,10 +37,32 @@ describe('DchatIM native orchestrator facade', () => {
   });
   it('does not replace an active lane with a second input', async () => {
     const f = fixture(); await f.im.init(); await f.receive();
-    await expect(f.receive('second')).rejects.toThrow('DCHAT_LANE_BUSY');
+    await expect(f.receive('second')).resolves.toBe('dispatched');
+    expect(f.im.queuedInputs()).toHaveLength(1);
     expect(f.events).toHaveLength(1); const first = f.events[0]!; f.im.acknowledgeIncoming(first.messageId);
     await f.im.commitFinal({ userId: first.senderId, inputMessageId: first.messageId, text: 'first result', terminal: 'done' });
-    expect(f.sends).toHaveLength(1); await f.im.dispose();
+    expect(f.sends).toHaveLength(1);
+    await vi.waitFor(() => expect(f.events).toHaveLength(2), { interval: 1 }); const second = f.events[1]!; expect(second.messageId).not.toBe(first.messageId);
+    f.im.acknowledgeIncoming(second.messageId, 'synthetic-session', 'synthetic-client');
+    await f.im.commitFinal({ userId: second.senderId, inputMessageId: second.messageId, text: 'second result', terminal: 'done' });
+    expect(f.sends).toMatchObject([{ text: 'first result' }, { text: 'second result' }]); await f.im.dispose();
+  });
+  it('reloads only never-dispatched queued IDs after restart and refuses uncertain active input replay', async () => {
+    const f = fixture(); await f.im.init(); await f.receive('active');
+    f.im.acknowledgeIncoming(f.events[0]!.messageId, 'synthetic-session', 'synthetic-active');
+    await f.receive('queued'); await f.im.init();
+    expect(f.im.queuedInputs().map(r => r.messageId)).toEqual(['queued']);
+    expect(await f.receive('active')).toBe('duplicate');
+    expect(await f.receive('queued')).toBe('dispatched');
+    expect(f.events).toHaveLength(2); expect(f.sends).toEqual([]); await f.im.dispose();
+  });
+  it('delivers a verified owner stop while busy without replacing the running output anchor', async () => {
+    const f = fixture(); await f.im.init(); await f.receive('active'); await f.receive('queued');
+    const active = f.events[0]!; f.im.acknowledgeIncoming(active.messageId);
+    await f.im.receive({ messageId: 'stop', accountId: 'self', chatId: 'dm', senderId: 'owner', senderName: 'Synthetic owner', text: '/stop', sentBySelf: false, invoked: true });
+    expect(f.events.map(e => e.text)).toEqual(['synthetic', '/stop']); expect(f.im.queuedInputs()).toEqual([]);
+    await f.im.commitFinal({ userId: active.senderId, inputMessageId: active.messageId, text: '', terminal: 'aborted' });
+    expect(f.sends).toEqual([]); await f.im.dispose();
   });
   it('does not confuse persistence acknowledgments when two chats reuse a native message id', async () => {
     const f = fixture({ chats: [...config.chats, { id: 'group', kind: 'group' }], executeChatIds: ['dm', 'group'] });

@@ -343,7 +343,7 @@ describe('turnRunner: connection handed to a companion bot', () => {
       config: { accountId: 'self', ownerId: OWNER, botId: 'bot-mimi', connectionId: BOT_CONTEXT,
         chats: [{ id: 'dm', kind: 'owner-dm', peerId: OWNER }], executeChatIds: ['dm'], replyMode: 'automatic' },
       storage: { read: () => ledger, write: value => { ledger = structuredClone(value); } },
-      native: { identity: async () => ({ accountId: 'self' }), capabilities: async () => ['dchat_im_clean_send_v2'],
+      native: { identity: async () => ({ accountId: 'self' }), capabilities: async () => ['content', 'dchat_im_clean_send_v2'],
         send: async value => { sends.push(value); return { messageId: 'synthetic-out' }; } },
       bindingAvailable: async () => true, draft: async () => {},
     });

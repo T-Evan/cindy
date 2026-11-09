@@ -218,6 +218,8 @@ export interface ImChannelAdapter {
    * Text-only channels can still resolve agent interactions without rich cards.
    * The callback owns channel-specific correlation and parsing.
    */
+  /** Channels without a safe remote confirmation surface use Cindy for every interaction. */
+  interactionSurface?: 'desktop';
   handleTextInteraction?(
     userId: string,
     request: InteractionRequest,
@@ -237,6 +239,7 @@ export interface ImChannelAdapter {
   onUserMessagePersisted?(args: {
     sessionId: string;
     userMessageId: string | null;
+    clientId?: string;
     persisted: boolean;
   }): Promise<void>;
   /**

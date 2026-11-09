@@ -11,7 +11,7 @@ const hello = Buffer.from('0053500000300000', 'hex');
 const replyHello = Buffer.from('0053500000310000', 'hex');
 /** Only call known methods; identity/database adapters must provide verified account identity. */
 export async function callDchatIpc(method: 'get_capabilities' | 'list_conversations' | 'send_text_message',
-  params: Record<string, unknown>, options: { socketPath: string; timeoutMs?: number; signal?: AbortSignal }): Promise<DchatIpcResponse> {
+  params: Record<string, unknown>, options: { socketPath: string; timeoutMs?: number; signal?: AbortSignal; isCurrent?: () => boolean }): Promise<DchatIpcResponse> {
   if (process.platform !== 'darwin') throw new DchatIpcError('PLATFORM_UNSUPPORTED', false);
   if (!options.socketPath.startsWith('/') || options.socketPath.includes('\0')) throw new DchatIpcError('INVALID_SOCKET', false);
   const info = await lstat(options.socketPath).catch(() => null);
@@ -44,7 +44,9 @@ export async function callDchatIpc(method: 'get_capabilities' | 'list_conversati
       if (!handshaken) {
         if (pending.length < 8) return;
         if (!pending.subarray(0, 8).equals(replyHello)) return finish('PROTOCOL');
-        pending = pending.subarray(8); handshaken = true; submitted = true; socket.write(request);
+        pending = pending.subarray(8); handshaken = true;
+        if (options.isCurrent?.() === false) return finish('STALE');
+        submitted = true; socket.write(request);
       }
       if (pending.length < 9) return;
       if (pending[0] !== 1) return finish('PROTOCOL');

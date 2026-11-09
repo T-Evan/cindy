@@ -1,3 +1,4 @@
+import { startDchatNativeConnections, stopDchatNativeConnections } from './dchat/nativeRuntime';
 import { registerDchatConnectionDraftIpc } from './dchat/connectionDraftHost';
 import { wireIMessageOrchestrator } from './imessage/adapter';
 /**
@@ -656,6 +657,7 @@ async function initializeImConnection(): Promise<void> {
   await im.init();
   // 伙伴自有连接跟在设置页那份后面起; 各自失败只记日志。
   await startBotImConnections();
+  await startDchatNativeConnections(DISCORD_CONFIG);
 }
 
 /**
@@ -782,6 +784,7 @@ const connectionLifecycle = createSerializedConnectionLifecycle({
   stopConnection: async (reason) => {
     try {
       // 伙伴自有连接先放掉(记录保留, 下次登录再起), 再停设置页那份。
+      await stopDchatNativeConnections();
       await stopBotImConnections();
       await im.dispose();
     } finally {

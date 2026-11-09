@@ -6,7 +6,7 @@ import { ui } from '../imessage/uiText';
 /** Companion-only channel policy. No ordinary task/agent fallback. */
 export function createDchatChannelAdapter(im: DchatIM, config: ImOrchestratorConfig): ImChannelAdapter {
   return {
-    channel: 'dchat', im, config, ui, companionRequired: true,
+    channel: 'dchat', im, config, ui, companionRequired: true, interactionSurface: 'desktop',
     getBotContextId: () => im.botContextId, silentQueue: true, processingEmoji: '',
     output: { kind: 'chunked-text', bindToInput: true, im, commitFinal: output => im.commitFinal(output) },
     sessions: { source: 'dchat', workspaceKind: 'dialogue',
@@ -32,7 +32,7 @@ export function createDchatChannelAdapter(im: DchatIM, config: ImOrchestratorCon
       origin: { kind: 'im', channel: 'dchat', taskId: event.messageId },
       autoReviewContext: { requesterAuthority: 'guest', source: 'group' },
       confirmationSurface: 'desktop', confirmationTimeoutMs: 30 * 60_000, forceConfirmToolCall: channelForceConfirmToolCall },
-    onUserMessagePersisted: async ({ userMessageId, persisted }) => { if (persisted && userMessageId) im.acknowledgeIncoming(userMessageId); },
+    onUserMessagePersisted: async ({ userMessageId, persisted, sessionId, clientId }) => { if (persisted && userMessageId) im.acknowledgeIncoming(userMessageId, sessionId, clientId); },
     handleTextInteraction: async (_userId, request, interactionOptions) => {
       // Shared router keeps the real request in the owner's Cindy interface.
       if (request.kind === 'permission' && interactionOptions?.sharedPermission) return interactionOptions.sharedPermission.result;

@@ -1740,22 +1740,22 @@ export function createTurnRunner(
             });
           }
           item.turn.interactionRouteLease =
-            effectiveTurnPolicy?.confirmationSurface === 'desktop'
+            (effectiveTurnPolicy?.confirmationSurface === 'desktop' || adapter.interactionSurface === 'desktop')
               ? beginInteractionRoute(state.makerSession, {
                   route: {
                     sessionId: rowId,
                     turnId: item.turn.turnId,
-                    origin: effectiveTurnPolicy.origin,
+                    origin: effectiveTurnPolicy?.origin ?? { kind: 'im', channel },
                     interactionSurface: 'desktop',
                     requesterAuthority: item.requesterIsOwner === true ? 'owner' : 'unknown',
-                    ...(effectiveTurnPolicy.confirmationTimeoutMs
+                    ...(effectiveTurnPolicy?.confirmationTimeoutMs
                       ? {
-                          timeoutMs: effectiveTurnPolicy.confirmationTimeoutMs,
+                          timeoutMs: effectiveTurnPolicy?.confirmationTimeoutMs,
                         }
                       : {}),
-                    ...(effectiveTurnPolicy.onInteractionStateChange
+                    ...(effectiveTurnPolicy?.onInteractionStateChange
                       ? {
-                          onStateChange: effectiveTurnPolicy.onInteractionStateChange,
+                          onStateChange: effectiveTurnPolicy?.onInteractionStateChange,
                         }
                       : {}),
                   },
@@ -1838,6 +1838,7 @@ export function createTurnRunner(
           await adapter.onUserMessagePersisted?.({
             sessionId: rowId,
             userMessageId: item.turn.userMessageId,
+            clientId: persisted?.clientId,
             persisted: persisted !== null,
           });
           if (persisted) {

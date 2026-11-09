@@ -10,7 +10,7 @@ export interface DchatInbound {
 export interface DchatNative {
   identity(): Promise<{ accountId: string }>;
   capabilities(): Promise<string[]>;
-  send(input: { accountId: string; chatId: string; text: string; requestId: string }): Promise<{ messageId: string }>;
+  send(input: { accountId: string; chatId: string; text: string; requestId: string; mode?: 'attributed' | 'clean-v2' }, options?: { isCurrent(): boolean }): Promise<{ messageId: string }>;
 }
 export interface DchatDispatch {
   receipt: DchatReceipt; chat: DchatChat; inbound: DchatInbound; requesterIsOwner: boolean;
@@ -18,6 +18,7 @@ export interface DchatDispatch {
 }
 export interface DchatTransportDeps {
   native: DchatNative; storage: DchatLedgerStorage;
+  current?(): boolean;
   bindingAvailable(botId: string): Promise<boolean>;
   /** Call existing Cindy IM orchestration, never create a replacement agent. */
   dispatch(input: DchatDispatch): Promise<void>;
@@ -37,11 +38,11 @@ export class DchatTransport {
   }
   disable(): void { this.enabled = false; this.generation = randomUUID(); }
   private async live(generation: string): Promise<boolean> {
-    if (!this.enabled || this.generation !== generation) return false;
+    if (!this.enabled || this.generation !== generation || this.deps.current?.() === false) return false;
     const identity = await this.deps.native.identity();
     if (!this.enabled || this.generation !== generation || identity.accountId !== this.config.accountId) return false;
     const available = await this.deps.bindingAvailable(this.config.botId);
-    return available && this.enabled && this.generation === generation;
+    return available && this.enabled && this.generation === generation && this.deps.current?.() !== false;
   }
   async receive(input: DchatInbound): Promise<'ignored' | 'context' | 'duplicate' | 'dispatched'> {
     const generation = this.generation;
@@ -64,13 +65,18 @@ export class DchatTransport {
     try {
       if (!await this.live(generation)) throw new Error('DCHAT_BINDING_UNAVAILABLE');
       await this.deps.dispatch({ receipt, chat, inbound: input, requesterIsOwner: input.senderId === this.config.ownerId,
-        isCurrent: () => this.enabled && this.generation === generation });
+        isCurrent: () => this.enabled && this.generation === generation && this.deps.current?.() !== false });
       return 'dispatched';
     } catch (error) {
       const row = this.ledger.read(receipt.requestKey);
       if (row && (row.state === 'reserved' || row.state === 'accepted')) this.ledger.transition(receipt.requestKey, generation, 'unknown');
       throw error;
     }
+  }
+  async canDispatch(value: DchatDispatch): Promise<boolean> {
+    const row = this.ledger.read(value.receipt.requestKey);
+    return !!row && ['reserved', 'queued'].includes(row.state) && row.generation === value.receipt.generation
+      && await this.live(value.receipt.generation);
   }
   acknowledge(requestKey: string, generation: string): void {
     if (!this.enabled || this.generation !== generation) throw new Error('DCHAT_STALE_INPUT');
@@ -88,11 +94,13 @@ export class DchatTransport {
       await this.deps.draft({ requestKey, destination: row.destination, text }); return;
     }
     const features = await this.deps.native.capabilities();
-    if (!features.includes('dchat_im_clean_send_v2')) throw new Error('DCHAT_CLEAN_SEND_UNAVAILABLE');
+    const clean = this.config.sendMode === 'clean-v2';
+    if (!features.includes(clean ? 'dchat_im_clean_send_v2' : 'content')) throw new Error(clean ? 'DCHAT_CLEAN_SEND_UNAVAILABLE' : 'DCHAT_ATTRIBUTED_SEND_UNAVAILABLE');
     if (!await this.live(generation)) throw new Error('DCHAT_STALE_OUTPUT');
     // ledger rejects changes to the immutable destination and uncertain sends.
     await this.ledger.deliver(requestKey, generation, row.destination, outputId, () =>
-      this.deps.native.send({ accountId: row.destination.accountId, chatId: row.destination.chatId, text, requestId: randomUUID() }),
+      this.deps.native.send({ accountId: row.destination.accountId, chatId: row.destination.chatId, text, requestId: randomUUID(), mode: this.config.sendMode },
+        { isCurrent: () => this.enabled && this.generation === generation && this.deps.current?.() !== false }),
     () => this.enabled && this.generation === generation);
   }
 }

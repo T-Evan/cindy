@@ -167,3 +167,6 @@ export { DchatIM, parseDchatConfig } from './dchat/index.js';
 export type { DchatIMOptions, DchatConfig, DchatChat, DchatInbound, DchatNative, DchatLedgerStorage } from './dchat/index.js';
 export { DchatMacNative } from './dchat/native.js';
 export { DchatCliReader } from './dchat/reader.js';
+
+export { DchatSqlcipherReader } from './dchat/sqlcipher.js';
+export { DchatNativeInlet } from './dchat/inlet.js';

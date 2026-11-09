@@ -29,7 +29,15 @@ const rootDir = path.resolve(__dirname, '..');
 const gracefulTimeoutMs = 3000;
 const forceTimeoutMs = 5000;
 const pollIntervalMs = 150;
-const startupReadyTimeoutMs = 120_000;
+/** Slow remote builds may opt into a longer bounded wait; readiness checks are unchanged. */
+export function resolveDesktopStartupTimeoutMs(env = process.env) {
+  const value = env.XDT_DESKTOP_STARTUP_TIMEOUT_MS;
+  if (value === undefined || value === '') return 120_000;
+  if (!/^\d+$/.test(value)) throw new Error('XDT_DESKTOP_STARTUP_TIMEOUT_MS must be an integer from 120000 to 600000');
+  const timeout = Number(value);
+  if (!Number.isSafeInteger(timeout) || timeout < 120_000 || timeout > 600_000) throw new Error('XDT_DESKTOP_STARTUP_TIMEOUT_MS must be an integer from 120000 to 600000');
+  return timeout;
+}
 export const ISOLATED_AUTH_LAUNCH_PROOF_FILE = '.isolated-auth-launch-proof.json';
 const isolatedAuthLaunchProofTtlMs = 10 * 60_000;
 const forceKillLabel = process.platform === 'win32' ? 'taskkill /F /T' : 'kill -9';
@@ -1278,7 +1286,7 @@ function attachStartupFailure(error, status) {
   return error;
 }
 
-export async function waitForDesktopStartup(statusPath, timeoutMs = startupReadyTimeoutMs) {
+export async function waitForDesktopStartup(statusPath, timeoutMs = resolveDesktopStartupTimeoutMs()) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const status = readDesktopStartupStatus(statusPath);

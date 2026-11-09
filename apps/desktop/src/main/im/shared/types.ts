@@ -40,7 +40,8 @@ export type ImChannelName =
   | 'telegram'
   | 'dingtalk'
   | 'wecom'
-  | 'imessage';
+  | 'imessage'
+  | 'dchat';
 
 /**
  * IM 编排层的产品默认配置(由 main/im/index.ts 产品接线层注入)。
@@ -151,6 +152,8 @@ export type ImCompanionLane =
  * 渠道适配器 — 编排层所有渠道差异的唯一注入点。
  */
 export interface ImChannelAdapter {
+  /** Fail closed when a bound companion is unavailable; forbid unrelated /ctr routes. */
+  companionRequired?: boolean;
   /**
    * 连接交给伙伴时的落点解析(见 ImCompanionLane)。只有支持「交给伙伴」的渠道
    * 实现; 缺省 = 这个渠道的连接不能交给伙伴, 保持原有路由。

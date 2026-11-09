@@ -162,3 +162,8 @@ export type { BlueBubblesState, BlueBubblesStateStorage } from './bluebubbles/st
 export { LocalWebhookReceiver } from './localWebhook.js';
 
 export { applyBlueBubblesReceiptUpdate, type BlueBubblesReceiptUpdate } from './bluebubbles/state.js';
+
+export { DchatIM, parseDchatConfig } from './dchat/index.js';
+export type { DchatIMOptions, DchatConfig, DchatChat, DchatInbound, DchatNative, DchatLedgerStorage } from './dchat/index.js';
+export { DchatMacNative } from './dchat/native.js';
+export { DchatCliReader } from './dchat/reader.js';

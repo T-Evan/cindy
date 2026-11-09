@@ -11,6 +11,7 @@ export const SESSION_SOURCES = [
   'dingtalk',
   'wecom',
   'imessage',
+  'dchat',
   'scheduler',
   'learn',
   'review',

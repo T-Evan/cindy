@@ -838,6 +838,7 @@ export function createTurnRunner(
     userId: string,
     scopeKey?: string,
   ): Promise<DefaultRouteTargetResolution> {
+    if (adapter.companionRequired) throw new Error('IM_COMPANION_REQUIRED');
     const providers = await listProvidersForAuth(authCheckDeps());
     const prepared = await repo.prepareNewSession(botContextId, userId, scopeKey, providers);
     const auth = await checkImRouteAuthDetailed(prepared, providers, authCheckDeps());
@@ -912,6 +913,7 @@ export function createTurnRunner(
       }
       resolved = { ok: false, errorCode: 'SESSION_UNAVAILABLE', message: 'companion session row missing' };
     }
+    if (adapter.companionRequired) throw new Error('IM_COMPANION_UNAVAILABLE');
     if (!companionFallbackWarned.has(botContextId)) {
       companionFallbackWarned.add(botContextId);
       log.warn(
@@ -957,6 +959,10 @@ export function createTurnRunner(
     scopeKey?: string,
     opts: { createCompanion?: boolean } = {},
   ): Promise<RouteTarget | null> {
+    if (adapter.companionRequired) {
+      const target = await resolveCompanionRouteTarget(botContextId, userId, scopeKey, opts.createCompanion === true);
+      return target === 'absent' ? null : target;
+    }
     // 优先查 binding 是否命中 — bindingStore.get 走进程内 Map, 同步且 O(1)。
     // threadScoped 渠道的 binding 按 (identity, scopeKey) 维度存(多重接管)。
     const targetSessionId = bindingStore.get({
@@ -1639,6 +1645,7 @@ export function createTurnRunner(
         if (output.kind === 'chunked-text' && item.turn.chunkedReplyBegun) {
           try {
             await output.commitFinal({
+              ...(output.bindToInput ? { inputMessageId: item.turn.userMessageId } : {}),
               userId,
               text: ui.agent.stopDone(0),
               terminal: 'aborted',
@@ -1904,6 +1911,7 @@ export function createTurnRunner(
           ) {
             try {
               await output.commitFinal({
+                ...(output.bindToInput ? { inputMessageId: item.turn.userMessageId } : {}),
                 userId,
                 text: ui.agent.sendInternalError('session_detaching'),
                 terminal: 'error',
@@ -3511,6 +3519,7 @@ export function createTurnRunner(
             failure.turn.chunkedReplyBegun
           ) {
             await output.commitFinal({
+              ...(output.bindToInput ? { inputMessageId: failure.turn.userMessageId } : {}),
               userId,
               text: message,
               terminal: 'error',
@@ -3712,6 +3721,7 @@ export function createTurnRunner(
         closed = true;
         if (output.kind === 'chunked-text') {
           await output.commitFinal({
+            ...(output.bindToInput ? { inputMessageId: turn.userMessageId } : {}),
             userId: turn.userId,
             text: finalText,
             terminal: turn.terminalKind,
@@ -3809,6 +3819,7 @@ export function createTurnRunner(
       try {
         if (output.kind === 'chunked-text') {
           await output.commitFinal({
+            ...(output.bindToInput ? { inputMessageId: turn.userMessageId } : {}),
             userId,
             text: '',
             terminal: turn.terminalKind,
@@ -3833,6 +3844,7 @@ export function createTurnRunner(
         const fallbackText = composeStreamingView(turn);
         if (output.kind === 'chunked-text') {
           await output.commitFinal({
+            ...(output.bindToInput ? { inputMessageId: turn.userMessageId } : {}),
             userId,
             text: fallbackText,
             terminal: turn.terminalKind,
@@ -3929,6 +3941,7 @@ export function createTurnRunner(
       try {
         if (output.kind === 'chunked-text') {
           await output.commitFinal({
+            ...(output.bindToInput ? { inputMessageId: turn.userMessageId } : {}),
             userId,
             text: `❌ 错误：${msg}`,
             terminal: 'error',

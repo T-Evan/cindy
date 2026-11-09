@@ -169,6 +169,8 @@ export interface RichChannelIM extends TextChannelIM {
 export type ChannelIM = RichChannelIM;
 
 export interface ImFinalOutput {
+  /** Trigger identity for transports that require immutable input/output correlation. */
+  inputMessageId?: string | null;
   userId: string;
   text: string;
   terminal: 'done' | 'aborted' | 'error';
@@ -191,6 +193,8 @@ export type ImOutputDriver =
     }
   | {
       kind: 'chunked-text';
+      /** Require final commits to carry the original triggering message identity. */
+      bindToInput?: boolean;
       im: TextChannelIM;
       /**
        * Reserve an inbound reply context before a potentially long turn.

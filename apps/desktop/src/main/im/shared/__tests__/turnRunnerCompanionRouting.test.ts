@@ -80,6 +80,9 @@ vi.mock('../pendingInteractions', () => ({
 vi.mock('../apiKey', () => ({ readXdGatewayApiKey: mocks.readXdGatewayApiKey }));
 
 import { createTurnRunner, type ImTurnRunner } from '../turnRunner';
+import { DchatIM } from '@cindy/im';
+import type { IMHost } from '@cindy/im';
+import { createDchatChannelAdapter } from '../../dchat/channelAdapter';
 import type { ImCardBuilders } from '../cardBuilders';
 import type { ImSessionRepo, ImSessionRow } from '../sessionRepo';
 import type { ImChannelAdapter } from '../types';
@@ -303,6 +306,68 @@ async function runTurn(userId: string, text = 'hello'): Promise<void> {
 }
 
 describe('turnRunner: connection handed to a companion bot', () => {
+  // New companion-only adapter contract: public runner route, no replacement task.
+  // Existing tests intentionally cover fallback for legacy channels. Unit tier;
+  // minimum failing inputs are inactive/missing binding and an unrelated /ctr row.
+  it.each(['unbound', 'inactive', 'missing-row', 'thrown'])(
+    'fails closed for companion-only adapters when %s', async state => {
+      if (state === 'unbound') binding = null;
+      if (state === 'inactive') companion.resolveSession.mockResolvedValue({ ok: false, errorCode: 'BOT_UNAVAILABLE', message: 'inactive' });
+      if (state === 'missing-row') botRows.delete('mimi-main');
+      if (state === 'thrown') companion.resolveSession.mockRejectedValue(new Error('unavailable'));
+      const strict = createTurnRunner({ ...fakeAdapter, companionRequired: true }, fakeRepo, fakeCards, { companion });
+      await expect(strict.resolveRouteTarget(BOT_CONTEXT, OWNER)).rejects.toThrow(/IM_COMPANION_/);
+      expect(fakeRepo.findActiveSession).not.toHaveBeenCalled();
+      expect(fakeRepo.createSession).not.toHaveBeenCalled();
+      expect(createSessionArgs).toEqual([]);
+    },
+  );
+
+  it('keeps companion-only owner routing on canonical even with an unrelated control binding', async () => {
+    mocks.bindingGet.mockReturnValue('unrelated-task');
+    const strict = createTurnRunner({ ...fakeAdapter, companionRequired: true }, fakeRepo, fakeCards, { companion });
+    const target = await strict.resolveRouteTarget(BOT_CONTEXT, OWNER);
+    expect(target?.row.id).toBe('mimi-main');
+    expect(mocks.bindingGet).not.toHaveBeenCalled();
+  });
+
+  // Synthetic transport + production channel policy + shared runner + fake Maker.
+  // The real Session.send boundary is observed; no provider or real partner data is used.
+  it('runs a synthetic D-Chat input through companion canonical Session.send and binds its terminal output', async () => {
+    const sends: Array<{ chatId: string; text: string }> = [];
+    let ledger: unknown = null;
+    const host: IMHost = { secrets: { write: () => true, read: () => null, remove() {}, isAvailable: () => true },
+      ipc: { throwIpcError: () => { throw new Error('invalid'); }, handle() {}, broadcast() {} },
+      paths: { feishuMediaDir: 'unused' }, httpPostForm: async () => ({ status: 500, body: null }) };
+    const im = new DchatIM(host, {
+      config: { accountId: 'self', ownerId: OWNER, botId: 'bot-mimi', connectionId: BOT_CONTEXT,
+        chats: [{ id: 'dm', kind: 'owner-dm', peerId: OWNER }], executeChatIds: ['dm'], replyMode: 'automatic' },
+      storage: { read: () => ledger, write: value => { ledger = structuredClone(value); } },
+      native: { identity: async () => ({ accountId: 'self' }), capabilities: async () => ['dchat_im_clean_send_v2'],
+        send: async value => { sends.push(value); return { messageId: 'synthetic-out' }; } },
+      bindingAvailable: async () => true, draft: async () => {},
+    });
+    const adapter = createDchatChannelAdapter(im, fakeAdapter.config);
+    const dchatRunner = createTurnRunner(adapter, fakeRepo, fakeCards, { companion });
+    let dispatched: Promise<void> | undefined;
+    im.onMessage(event => {
+      dispatched = dchatRunner.runAgentTurn({ botContextId: BOT_CONTEXT, userId: event.senderId,
+        userMessageId: event.messageId, text: event.text, attachments: [], requesterIsOwner: event.speaker?.isOwner });
+    });
+    await im.init();
+    try {
+      await im.receive({ messageId: 'native-input', accountId: 'self', chatId: 'dm', senderId: OWNER,
+        senderName: 'Synthetic owner', text: 'synthetic request', sentBySelf: false, invoked: true });
+      await dispatched;
+      expect(companion.prepareSend).toHaveBeenCalledWith('mimi-main');
+      const h = harnesses.get('mimi-main')!;
+      expect(h.send).toHaveBeenCalledTimes(1); expect(fakeRepo.createSession).not.toHaveBeenCalled();
+      h.emit({ type: 'text', data: { text: 'synthetic result', isFinal: true } } as AgentEvent);
+      h.emit({ type: 'done', data: {} } as AgentEvent);
+      await vi.waitFor(() => expect(sends).toMatchObject([{ chatId: 'dm', text: 'synthetic result' }]), { interval: 1 });
+    } finally { await dchatRunner.disposeAllSessions(); await im.dispose(); }
+  });
+
   it('keeps the channel’s own routing for an unbound connection', async () => {
     binding = null;
     await runTurn(OWNER, 'first');

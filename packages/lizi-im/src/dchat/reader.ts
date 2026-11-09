@@ -31,6 +31,15 @@ export class DchatCliReader {
     if (typeof user?.id !== 'string' || !/^\d{1,128}$/.test(user.id)) throw new Error('DCHAT_IDENTITY_UNAVAILABLE');
     return { accountId: user.id };
   }
+  /** Backend-only read, bracketed by fresh local identity. No tokens leave the CLI. */
+  async members(chatId: string): Promise<{ accountId: string; chatId: string; memberIds: string[] }> {
+    if (!/^\d{1,128}$/.test(chatId)) throw new Error('DCHAT_INVALID_MEMBERSHIP_QUERY');
+    const before = await this.identity();
+    const raw = await this.read(['chat', 'members', '--vid', chatId]);
+    const memberIds = decodeDchatMembers(raw, chatId);
+    if ((await this.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
+    return { accountId: before.accountId, chatId, memberIds };
+  }
   /** Explicit bounded history reads only. Permission errors stay visible; no fallback to another account/source. */
   async page(chatId: string, anchor?: string): Promise<Record<string, unknown>> {
     if (!/^\d{1,128}$/.test(chatId) || (anchor !== undefined && (!anchor || anchor.length > 2048 || Array.from(anchor).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)))) throw new Error('DCHAT_INVALID_HISTORY_QUERY');
@@ -41,4 +50,19 @@ export class DchatCliReader {
       || (pagination.newer.has_more && typeof pagination.newer.query?.anchor_key !== 'string')) throw new Error('DCHAT_HISTORY_INCOMPLETE');
     return result;
   }
+}
+
+/** Deliberately strict machine contract. schema chat.members advertises the read,
+ * but not its JSON shape/completeness. Unknown installed versions fail closed;
+ * a real authorized Mac read must verify this contract before activation. */
+export function decodeDchatMembers(raw: Record<string, unknown>, chatId: string): string[] {
+  if (raw.vchannel_id !== chatId || raw.has_more !== false || !Array.isArray(raw.members)
+    || !Number.isSafeInteger(raw.member_count) || raw.member_count !== raw.members.length || raw.members.length > 10000) throw new Error('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
+  const ids = raw.members.map((member: unknown) => {
+    const id = (member as { id?: unknown } | null)?.id;
+    if (typeof id !== 'string' || !/^\d{1,128}$/.test(id)) throw new Error('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
+    return id;
+  });
+  if (new Set(ids).size !== ids.length) throw new Error('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
+  return ids;
 }

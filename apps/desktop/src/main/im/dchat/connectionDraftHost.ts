@@ -1,7 +1,7 @@
 import { dialog, ipcMain } from 'electron';
 import { DchatCliReader, DchatSqlcipherReader } from '@cindy/im';
 import { createDchatSetupHandlers } from './connectionSetup';
-import { readDchatNativeBindings, writeDchatNativeBinding, dchatNativeStatus, reloadDchatNativeConnections } from './nativeRuntime';
+import { readDchatNativeBindings, writeDchatNativeBinding, dchatNativeStatus, dchatInterruptedCount, reloadDchatNativeConnections } from './nativeRuntime';
 import type { DchatSetupPath } from '../../../shared/dchatConnection';
 import { eq } from 'drizzle-orm';
 import { getActiveAppSession, activeOwnerScopeKey, isAppSessionBoundaryPending } from '../../appSessionState';
@@ -60,7 +60,7 @@ const handlers = createDchatConnectionDraftHandlers({
 const setup = createDchatSetupHandlers({
   scope: currentScope, platform: process.platform,
   read: readDchatNativeBindings, write: writeDchatNativeBinding,
-  connected: dchatNativeStatus, reload: reloadDchatNativeConnections,
+  connected: dchatNativeStatus, interruptedCount: dchatInterruptedCount, reload: reloadDchatNativeConnections,
   available: async botId => {
     const [row] = await getDbClient().drizzle.select({ status: botProfiles.status })
       .from(botProfiles).where(eq(botProfiles.id, botId)).limit(1);
@@ -79,6 +79,11 @@ const setup = createDchatSetupHandlers({
       if (page.accountId !== before.accountId || (await identity.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
       const kind = page.kind === 'subchannel' ? 'topic' : ['channel', 'extchannel'].includes(page.kind) ? 'group'
         : page.peerId === before.accountId ? 'owner-dm' : 'guest-dm';
+      if (kind === 'group' || kind === 'topic') {
+        const members = await identity.members(page.parentId ?? chatId);
+        if (members.accountId !== before.accountId || !members.memberIds.includes(before.accountId)) throw new Error('DCHAT_MEMBERSHIP_UNAVAILABLE');
+      }
+      if ((await identity.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
       return { accountId: before.accountId, chat: { id: chatId, kind,
         ...(['owner-dm', 'guest-dm'].includes(kind) ? { peerId: page.peerId } : {}),
         ...(kind === 'topic' ? { parentId: page.parentId } : {}) } as import('@cindy/im').DchatChat };

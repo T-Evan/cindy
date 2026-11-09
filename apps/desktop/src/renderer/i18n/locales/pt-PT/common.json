@@ -11874,7 +11874,12 @@
         "verifySave": "Verificar e guardar ligação",
         "enable": "Ativar ligação",
         "disable": "Desativar ligação",
-        "setupFailed": "Não foi possível verificar ou atualizar a ligação. Verifica as ferramentas, o acesso à conversa e a disponibilidade do parceiro."
+        "setupFailed": "Não foi possível verificar ou atualizar a ligação. Verifica as ferramentas, o acesso à conversa e a disponibilidade do parceiro.",
+        "controlTitle": "Controlo da conta",
+        "controlOn": "Controlo da conta permitido",
+        "controlOff": "Controlo da conta desativado",
+        "controlHelp": "Neste chat, a sua conta local do D-Chat pode usar {{command}} para este colega. As mensagens automáticas não iniciam trabalho.",
+        "interrupted": "{{count}} entradas interrompidas aguardam uma recuperação verificada no Cindy. Não serão reenviadas."
       }
     },
     "voiceMode": {

@@ -8,7 +8,7 @@ Desktop 在既有本地数据库及账号边界就绪后调用 startDchatNativeC
 
 伙伴设置中的 D-Chat 向导使用 dchatSetup IPC：Main 文件选择器选择本机 CLI、SQLCipher、组件与数据库目录，Renderer 仅提供聊天 ID 与执行开关。Main 重新读取本机账号并验证目标聊天，拒绝 Renderer 附加的 ownerId/accountId；保存强制 enabled=false、replyMode=draft。启用是单独操作，重新验证账号、聊天类型/父群、原伙伴可用状态后热重载。界面分别显示未配置、已保存未启用、已连接、已启用但不可用及核验失败；Linux 不展示启用操作。返回文件选择器后保留尚未保存的目标编辑。
 
-Main 按账号保存 native-bindings.json。默认 bindings 为空，未启用的旧草稿不会晋升为执行连接。高级配置包含 enabled、config、identityExecutable、sqlcipherExecutable、component、databaseRoot、socketPath。五个路径必须为本机绝对路径，不含密钥、消息或登录材料。运行中修改/停用配置使旧连接租约失效；Main 每次配置写入生成并持久保存新 revision，回执绑定完整配置指纹。重新启用或更改回复模式不会让旧输入获得新授权；缺少该证明的旧回执不补通知或恢复排队。向导从本机账号确立 ownerId，不从表单或群主身份推断；当前 reader 会忽略自发消息，因此不会把同账号手工输入与 Cindy 发送混为可执行主人命令。跨账号主人映射尚需经过明确配对方案才能开放，不能把任意访客升级为主人。
+Main 按账号保存 native-bindings.json。默认 bindings 为空，未启用的旧草稿不会晋升为执行连接。高级配置包含 enabled、config、identityExecutable、sqlcipherExecutable、component、databaseRoot、socketPath。五个路径必须为本机绝对路径，不含密钥、消息或登录材料。运行中修改/停用配置使旧连接租约失效；Main 每次配置写入生成并持久保存新 revision，回执绑定完整配置指纹。重新启用或更改回复模式不会让旧输入获得新授权；缺少该证明的旧回执不补通知或恢复排队。向导从本机账号确立 ownerId，不从表单或群主身份推断；本机账号控制必须另行选择 controlChatId，并在该聊天使用精确的 /cindy <botId> <指令> 前缀。只有 senderId 与 Main 新鲜核验账号相同且无自动来源/可见 Cindy 署名时，才赋予主人身份；普通本人消息、自动发送回执和外部成员都不能借此触发。控制选择与执行开关独立，保存仍停用且为 draft；未允许执行时控制消息也仅作上下文。跨账号主人映射尚需经过明确配对方案才能开放，不能把任意访客升级为主人。
 
 config 包含 accountId、ownerId、botId、connectionId、chats。每个 chat 明确指定 owner-dm / guest-dm / group / topic；私聊填写 peerId，话题填写 parentId。executeChatIds 默认空，replyMode 默认 draft，sendMode 默认 attributed。没有群执行允许范围就不执行；群/话题还需原生结构化提及。绑定不可用一律拒绝，不创建同名伙伴或普通任务。
 
@@ -18,7 +18,7 @@ packages/lizi-im/src/dchat/sqlcipher.ts 是独立实现的 SQLCipher 只读 read
 
 reader 按新鲜账号定位 1_<accountId>_db/chat39，验证路径类型/归属、schema 字段和 WAL sidecar；以 -readonly 和 query_only 打开，不复制数据库、不 checkpoint、不 migration。候选仅取 Mach-O 的 __cstring；最多 32 个、10 秒预算，密钥仅在内存及子进程 stdin，stderr 不记录。停止时释放缓存。真实 Mac 二进制、SQLCipher 分发与实际 schema 仍需平台验收。
 
-从 vchannels 核对本机账号退群/解散/移出标记、私聊 peer 与话题父群；消息 uid 必须存在于本地 users，排除 robot_id 与冲突的 content.author。群召唤只认结构化 mentions，不认正文里的 @ 字样。此处证明的是本地缓存成员状态与发送者字段，不是实时服务端群成员证明；尚未接入完整成员目录。
+从 vchannels 核对本机账号退群/解散/移出标记、私聊 peer 与话题父群；消息 uid 必须存在于本地 users，排除 robot_id 与冲突的 content.author。群召唤只认结构化 mentions，不认正文里的 @ 字样。生产群/话题执行还通过本机 CLI 的 chat members --vid 查询实时成员，查询前后核验本机账号，并在排队输入真正派发前再次检查本机账号及发信人仍在群中。终稿及恢复通知出站前也重新确认本机账号仍在该群；退群不外传结果。话题校验父群。静态 CLI schema 已确认此命令只读、使用后端 API、不支持 --current，且只支持 channel/extchannel；但 schema 未声明 JSON 字段或完整列表/分页合同。当前严格解码器仅接受 vchannel_id、has_more=false、member_count 与去重 members[].id 相符的完整响应；这是待核验的机器合同，不能冒充已证实的真实返回形状。未知/部分返回报 DCHAT_MEMBER_SCHEMA_UNVERIFIED，保持群连接关闭。实际 Mac 授权只读样本与版本合同仍是生产群接入的阻塞。
 
 首次页面只建立基线，不执行历史。之后逐页（每页最多 50）从持久 anchor 继续，严格核对序号、prev_msg_key、时间单调与缓存覆盖；缺 anchor/断页即停止，不降级成“最近消息”。整数 TEXT 包括 123.0 以 BigInt 无损归一化。收集上下文与执行允许范围分开；首次页及未召唤背景消息进入现有 owner DB 的 channelGroupWindow；执行触发使用 connection/parent chat/topic 分区、持久增量游标与精确 triggerMessageId 拼装，群窗口负责围栏中和与容量限制。上下文只进入当次模型输入，同时以 captureImContext 保存同源展示快照；D-Chat 渠道说明与界面来源共享名称。它不替换落库原话，也不改变触发者权限。上下文不可用或账号/DB 在拼装期间改变时拒绝执行。群窗口本身的预算与缓存语义不等于完整服务端历史。
 
@@ -32,9 +32,11 @@ DchatIM -> createDchatChannelAdapter -> 既有 shared runner。主人私聊使�
 
 executionObserver 在受理时与恢复时挂到原生事件；只在同一实例/代次观察到产品终态时持久记录，不把 silent-stop/continuation 边界当完成。重启读取已持久确认的成功/失败/取消状态，原聊天仍在执行允许范围且账号/伙伴/连接有效、从未尝试输出时，才可发送一次不含正文的状态通知；draft 模式只保留 Cindy 结果。未知发送不重发，旧输入不重投，原生实例/代次被替换且缺少接管证明时保留 unknown。
 
-scripts/verify-dchat-recovery.mjs 用真实 0600 回执文件与 6 个独立 Node 子进程验证该通知恢复、未知发送不重试和账号替换阻断；传输仍为合成。
+scripts/verify-dchat-recovery.mjs 用真实 0600 回执文件与 10 个独立 Node 子进程验证通知恢复、精确接管的预留/确认、确认前崩溃、未知发送不重试和账号替换阻断；传输仍为合成。跨进程脚本显式提供接管身份，不能证明宿主自动生成了跨重启恢复凭据。
 
-这提供了“终态已确认后重启补通知”的最小恢复闭环，不代表活跃模型执行可跨整个应用进程重启继续。尚缺自动续跑跨代次的可信 clientId 接管回执，以及 provider 重连/跨进程恢复运行中的长任务证明；不能用同一个 Session ID 或历史正文补成完成。合成跨模块回归已实际调用 pluginCompanionSlot 的 history/reply、bot 排除规则与 assistantReplyHook，再验证旁路出站拒绝且仅当前 native 按次结果发送。该覆盖不等于真实已装插件/真实伙伴的产品验收。
+Main-only inputRecoverySignal 接收真实宿主恢复意图、预约和派发确认。silent-stop 自动续跑由宿主提供旧 instanceId/turnGeneration 与新 clientId，预约阶段迁移精确观察器，派发确认后才允许不含正文的原目的地通知；同步终态在确认前只持久记录，取消、后续输入、换账号或撤销阻断。旧代次事件不能结算新输入，续跑终态以原 requestKey 和当前实例/代次清理共享 runner 的旧轮次及交互租约，再释放原忙碌 lane；不 finalize 旧文本，也不清理后续输入。真实 Session.sendHostTurnContinuation 回归覆盖预约到派发和后续排队输入。协调器 active-turn retry 仅在它本身持有原 clientId 时产生精确接管意图；渠道未知输入强制 continuation-only，避免零可见输出时重发可能产生副作用的正文。
+
+这仍不代表活跃模型可跨整个应用进程重启自动续跑。普通 shared IM runner 直接 Session.send，应用重启后没有可证明其原输入恢复的通用持久协调器回执；不会从 Session ID、正文或时间猜测，也不会自行重投。新实例/代次缺少精确凭据时标记 interrupted，设置页显示待在 Cindy 核验恢复；只有宿主实际保存并恢复同一 clientId 的 native 恢复入口，且原回执尚无产品终态或任何输出尝试，才可采用预约/确认接管协议。普通 IM 输入跨整个应用重启后的手动续跑接管仍未提供，不能把低层合成接管脚本当作该产品入口已可用。恢复输出限不含正文的状态通知，不导出伙伴历史。合成跨模块回归已实际调用 pluginCompanionSlot 的 history/reply、bot 排除规则与 assistantReplyHook，再验证旁路出站拒绝且仅当前 native 按次结果发送。该覆盖不等于真实已装插件/真实伙伴的产品验收。
 
 主人 /stop 可越过忙碌队列进入已有共享停止入口，清理本 lane 排队回执，不替换原输出锚点。所有交互指定 Cindy desktop 原生路由，包括主人提问与访客审批；D-Chat 正文不能批准工具请求。取消/失败沿用绑定终态。真实待输入、取消、长任务与伙伴记忆工具仍需实际产品验收。
 
@@ -58,7 +60,7 @@ scripts/verify-dchat-recovery.mjs 用真实 0600 回执文件与 6 个独立 Nod
 
 公开基线 6ef269cd62682236e7e4128c5802572023502285，Apache-2.0，与调查时安装版提交不同。QChat 0.4.6 ecc20858bcac488ec030f30f4722139f69b8ec61 仅用于协议事实参考；未复制许可未明源代码、Agent 引擎、依赖、运行数据或凭证。
 
-仍需完成：跨账号主人的可信配对、完整实时成员目录、活跃长任务跨进程与自动续跑跨代次的可信接管、真实已装插件防外传及原伙伴能力验收、Mac 构建与实际本地只读/收发验收。向导仅能保存为 draft，普通自动文字发送需高级配置显式选择 automatic，仍按精确聊天允许范围生效。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
+仍需完成：跨账号主人的可信配对（默认拒绝）、真实版本的完整实时成员返回合同核验、普通 IM 活跃输入跨整个应用进程重启后的可信手动/自动接管、真实已装插件防外传及原伙伴能力验收、Mac 构建与实际本地只读/收发验收。向导仅能保存为 draft，普通自动文字发送需高级配置显式选择 automatic，仍按精确聊天允许范围生效。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
 
 
 ## Mac 最小接手要求

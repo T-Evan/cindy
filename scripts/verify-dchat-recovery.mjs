@@ -28,6 +28,18 @@ if (process.argv[2] === '--child') {
         return { messageId: 'synthetic-confirmed' };
       } },
   });
+  if (behavior === 'takeover' || behavior === 'reservation-crash') {
+    const original = transport.ledger.executionInputs()[0];
+    const replacement = { sessionId: execution.sessionId, clientId: 'replacement-client', instanceId: 'replacement-instance', turnGeneration: 2 };
+    assert.throws(() => transport.ledger.adoptExecution(original.requestKey, 'unrelated', replacement), /DCHAT_RECOVERY_UNVERIFIED/);
+    transport.ledger.adoptExecution(original.requestKey, execution.clientId, replacement);
+    assert.throws(() => transport.ledger.recordNativeTerminal(original.requestKey, execution, 'done'), /DCHAT_STALE_EXECUTION/);
+    transport.ledger.recordNativeTerminal(original.requestKey, replacement, 'done');
+    await transport.recoverTerminalNotifications();
+    assert.equal(fs.existsSync(attempts), false);
+    if (behavior === 'reservation-crash') process.exit(0);
+    transport.ledger.confirmRecovery(original.requestKey, replacement);
+  }
   if (behavior === 'unknown') await assert.rejects(transport.recoverTerminalNotifications(), /DCHAT_SEND_OUTCOME_UNKNOWN/);
   else if (behavior === 'account-changed') await assert.rejects(transport.recoverTerminalNotifications(), /DCHAT_BINDING_UNAVAILABLE/);
   else await transport.recoverTerminalNotifications();
@@ -61,9 +73,16 @@ if (process.argv[2] === '--child') {
     run(active, activeSends); assert.equal(lines(activeSends).length, 0);
     const changed = make('account-replaced', 'error'), changedSends = path.join(temporary, 'changed.jsonl');
     run(changed, changedSends, 'account-changed'); assert.equal(lines(changedSends).length, 0);
-    console.log(JSON.stringify({ status: 'passed', tier: 'integration', childProcesses: 6,
+    const adopted = make('exact-adoption'), adoptedSends = path.join(temporary, 'adopted.jsonl');
+    run(adopted, adoptedSends, 'takeover'); run(adopted, adoptedSends);
+    assert.equal(lines(adoptedSends).length, 1);
+    const unconfirmed = make('unconfirmed-adoption'), unconfirmedSends = path.join(temporary, 'unconfirmed-adoption.jsonl');
+    run(unconfirmed, unconfirmedSends, 'reservation-crash'); run(unconfirmed, unconfirmedSends);
+    assert.equal(lines(unconfirmedSends).length, 0);
+    console.log(JSON.stringify({ status: 'passed', tier: 'integration', childProcesses: 10,
       checks: ['private receipts 0600', 'confirmed native terminal notified to original chat once across process restarts',
-        'unknown send never retried', 'active unconfirmed execution not replayed or guessed complete', 'account replacement blocks notification'],
+        'exact source/client/instance/generation adoption notifies once only after accepted confirmation',
+        'crash before recovery acceptance remains interrupted without notification', 'unknown send never retried', 'active unconfirmed execution not replayed or guessed complete', 'account replacement blocks notification'],
       realDchatData: false, realCompanionExecution: false, activeExecutionResumptionVerified: false }));
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }

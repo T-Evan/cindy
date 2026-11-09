@@ -11730,7 +11730,12 @@
         "verifySave": "核验并保存连接",
         "enable": "启用连接",
         "disable": "停用连接",
-        "setupFailed": "未能核验或更新连接，请检查本机读取工具、对话访问权限和伙伴状态"
+        "setupFailed": "未能核验或更新连接，请检查本机读取工具、对话访问权限和伙伴状态",
+        "controlTitle": "本人账号控制",
+        "controlOn": "已允许本人账号控制",
+        "controlOff": "本人账号控制已关闭",
+        "controlHelp": "在此言谈中，本机 D-Chat 账号可用 {{command}} 指定此伙伴派活。自动消息不会触发执行。",
+        "interrupted": "有 {{count}} 条输入已中断，等待在 Cindy 核验恢复，不会自动重投。"
       }
     },
     "voiceMode": {

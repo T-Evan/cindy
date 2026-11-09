@@ -1,3 +1,6 @@
+import { DchatIM, type IMHost, type IMMessageEvent } from '@cindy/im';
+import { createDchatExecutionObserver, createDchatRecoveryListener } from '../../im/dchat/executionObserver';
+import { onInputRecovery, noteHostInputContinuation, reserveInputRecovery, confirmInputRecovery } from '../inputRecoverySignal';
 /**
  * silentStopContinuationBinding.test.ts
  * ---------------------------------------------------------------------------
@@ -191,4 +194,48 @@ describe('silent-stop continuation generation binding (behavior on a real Sessio
       await h.session.close().catch(() => {});
     }
   });
+  // Unit: real Session reservation/dispatch + production D-Chat bridge and ledger.
+  // The old generation must never settle the continued input, and the accepted
+  // continuation terminal must release the original busy lane exactly once.
+  it('carries the exact native input through real Session host continuation before notifying its original lane', async () => {
+    const h = createHarness(); let stored: unknown = null; const sends: unknown[] = []; const messages: IMMessageEvent[] = [];
+    const host: IMHost = { secrets: { write: () => true, read: () => null, remove() {}, isAvailable: () => true },
+      ipc: { throwIpcError: () => { throw new Error('invalid'); }, handle() {}, broadcast() {} },
+      paths: { feishuMediaDir: 'unused' }, httpPostForm: async () => ({ status: 500, body: null }) };
+    const im = new DchatIM(host, { config: { accountId: '100', ownerId: '100', botId: 'bot', connectionId: 'native',
+      chats: [{ id: '300', kind: 'group' }], executeChatIds: ['300'], replyMode: 'automatic' },
+      storage: { read: () => stored, write: value => { stored = structuredClone(value); } },
+      native: { identity: async () => ({ accountId: '100' }), capabilities: async () => ['content'],
+        send: async input => { sends.push(input); return { messageId: 'synthetic-send' }; } },
+      bindingAvailable: async () => true, draft: async () => {}, executionBound: receipt => observer.observe(receipt) });
+    const observer = createDchatExecutionObserver({ im, current: () => true, session: () => h.session,
+      onSession: () => () => {}, onError: vi.fn() });
+    const release = onInputRecovery(createDchatRecoveryListener({ im, observer, current: () => true }));
+    im.onMessage(event => messages.push(event));
+    const incoming = { messageId: 'original', accountId: '100', chatId: '300', senderId: '200', senderName: 'Guest', text: 'work', sentBySelf: false, invoked: true };
+    try {
+      await im.init(); await im.receive(incoming);
+      await h.session.send({ type: 'user', content: 'synthetic work' }, {
+        onAccepted: () => im.acknowledgeIncoming(messages[0]!.messageId, SID, 'original-client',
+          { instanceId: h.session.instanceId, turnGeneration: h.session.getTurnGeneration() }) });
+      const stopped = new Promise<void>(resolve => { const off = h.session.onEvent(event => { if (event.type === 'done') { off(); resolve(); } }); });
+      h.emit({ type: 'done', data: { silentStop: true }, source: 'pi' } as AgentEvent); await stopped;
+      const source = { sessionId: SID, instanceId: h.session.instanceId, turnGeneration: h.session.getTurnGeneration() };
+      noteHostInputContinuation(source, 'host-client');
+      await im.receive({ ...incoming, messageId: 'queued' }); expect(im.queuedInputs()).toHaveLength(1);
+      const resumed = await h.session.sendHostTurnContinuation({ type: 'user', content: 'continue without replay' }, {
+        ...h.binding.sendOpts,
+        onAccepted: async () => reserveInputRecovery({ sessionId: SID, clientId: 'host-client', instanceId: h.session.instanceId, turnGeneration: h.session.getTurnGeneration() }) });
+      expect(resumed.accepted).toBe(true);
+      const ended = new Promise<void>(resolve => { const off = h.session.onEvent(event => { if (event.type === 'done') { off(); resolve(); } }); });
+      h.emit({ type: 'done', data: {}, source: 'pi' } as AgentEvent); await ended;
+      expect(sends).toEqual([]);
+      await confirmInputRecovery({ sessionId: SID, clientId: 'host-client', instanceId: h.session.instanceId, turnGeneration: h.session.getTurnGeneration() });
+      expect(sends).toMatchObject([{ chatId: '300' }]);
+      await vi.waitFor(() => expect(messages).toHaveLength(2), { interval: 1 });
+      im.acknowledgeIncoming(messages[1]!.messageId, SID, 'queued-client', { instanceId: h.session.instanceId, turnGeneration: h.session.getTurnGeneration() });
+      expect(im.queuedInputs()).toEqual([]); expect(await im.receive(incoming)).toBe('duplicate');
+    } finally { release(); observer.stop(); await im.dispose(); await h.session.close().catch(() => {}); }
+  });
+
 });

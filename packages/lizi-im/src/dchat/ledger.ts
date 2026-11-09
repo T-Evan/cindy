@@ -12,6 +12,7 @@ export interface DchatReceipt {
   authorizationKey?: string;
   execution?: { sessionId: string; clientId: string; instanceId?: string; turnGeneration?: number };
   nativeTerminal?: 'done' | 'error' | 'aborted';
+  recovery?: { status: 'interrupted' | 'reserved' | 'running'; sourceClientId?: string };
   outputs: Record<string, { state: 'sending' | 'sent' | 'unknown'; messageId?: string }>;
 }
 export interface DchatLedgerStorage {
@@ -34,6 +35,7 @@ function validReceipt(value: unknown): value is DchatReceipt {
     && !!r.destination && ['accountId', 'connectionId', 'botId', 'chatId'].every(k => validId(r.destination[k as keyof DchatDestination]))
     && typeof r.destination.topicId === 'string' && r.destination.topicId.length <= 2048
     && (r.execution === undefined || (!!r.execution && validId(r.execution.sessionId) && validId(r.execution.clientId)))
+    && (r.recovery === undefined || (!!r.recovery && ['interrupted', 'reserved', 'running'].includes(r.recovery.status) && (r.recovery.sourceClientId === undefined || validId(r.recovery.sourceClientId))))
     && (r.nativeTerminal === undefined || ['done', 'error', 'aborted'].includes(r.nativeTerminal))
     && (r.execution?.instanceId === undefined || (validId(r.execution.instanceId) && Number.isSafeInteger(r.execution.turnGeneration) && r.execution.turnGeneration! > 0))
     && !!r.outputs && typeof r.outputs === 'object' && !Array.isArray(r.outputs)
@@ -55,6 +57,8 @@ export class DchatLedger {
         if (this.receipts.has(row.requestKey)) throw new Error('DCHAT_LEDGER_INVALID');
         // An interrupted dispatch may have executed tools. Never replay it.
         if (row.state === 'reserved' || row.state === 'accepted') row.state = 'unknown';
+        if (row.recovery?.status === 'reserved') delete row.nativeTerminal;
+        if (row.execution && row.state === 'unknown' && !row.nativeTerminal) row.recovery = { status: 'interrupted', ...(row.recovery?.sourceClientId ? { sourceClientId: row.recovery.sourceClientId } : {}) };
         for (const output of Object.values(row.outputs)) if (output.state === 'sending') output.state = 'unknown';
         this.receipts.set(row.requestKey, row);
       }
@@ -106,9 +110,40 @@ export class DchatLedger {
   executionInputs(): DchatReceipt[] {
     return [...this.receipts.values()].filter(r => r.execution?.instanceId && ['accepted', 'unknown'].includes(r.state)).map(r => structuredClone(r));
   }
+  reattachExecution(requestKey: string, execution: NonNullable<DchatReceipt['execution']>): void {
+    this.mutate(() => {
+      const row = this.receipts.get(requestKey);
+      if (!row || row.recovery?.status !== 'interrupted' || row.recovery.sourceClientId || !row.execution
+        || row.execution.sessionId !== execution.sessionId || row.execution.clientId !== execution.clientId
+        || row.execution.instanceId !== execution.instanceId || row.execution.turnGeneration !== execution.turnGeneration) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      delete row.recovery;
+    });
+  }
+  adoptExecution(requestKey: string, sourceClientId: string, execution: NonNullable<DchatReceipt['execution']>): DchatReceipt {
+    return this.mutate(() => {
+      const row = this.receipts.get(requestKey);
+      if (!row || !['accepted', 'unknown'].includes(row.state) || row.execution?.clientId !== sourceClientId
+        || row.execution.sessionId !== execution.sessionId || row.nativeTerminal || Object.keys(row.outputs).length
+        || !validId(execution.clientId) || !validId(execution.instanceId) || !Number.isSafeInteger(execution.turnGeneration) || execution.turnGeneration! <= 0
+        || sourceClientId === execution.clientId) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      row.state = 'unknown'; row.execution = { ...execution }; delete row.nativeTerminal;
+      row.recovery = { status: 'reserved', sourceClientId };
+      return structuredClone(row);
+    });
+  }
+  confirmRecovery(requestKey: string, execution: NonNullable<DchatReceipt['execution']>): void {
+    this.mutate(() => {
+      const row = this.receipts.get(requestKey);
+      if (!row || row.recovery?.status !== 'reserved' || (row.execution?.sessionId !== execution.sessionId || row.execution?.clientId !== execution.clientId || row.execution?.instanceId !== execution.instanceId || row.execution?.turnGeneration !== execution.turnGeneration)) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      row.recovery.status = 'running';
+    });
+  }
+  interruptRecovery(requestKey: string): void {
+    this.mutate(() => { const row = this.receipts.get(requestKey); if (row && (!row.nativeTerminal || row.recovery?.status === 'reserved')) { delete row.nativeTerminal; row.recovery = { status: 'interrupted', ...(row.recovery?.sourceClientId ? { sourceClientId: row.recovery.sourceClientId } : {}) }; } });
+  }
   recordNativeTerminal(requestKey: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }, terminal: 'done' | 'error' | 'aborted'): void {
     const row = this.receipts.get(requestKey);
-    if (!row || !['accepted', 'unknown'].includes(row.state) || !row.execution
+    if (!row || row.recovery?.status === 'interrupted' || !['accepted', 'unknown'].includes(row.state) || !row.execution
       || row.execution.sessionId !== execution.sessionId || row.execution.clientId !== execution.clientId
       || row.execution.instanceId !== execution.instanceId || row.execution.turnGeneration !== execution.turnGeneration) throw new Error('DCHAT_STALE_EXECUTION');
     if (row.nativeTerminal) return;
@@ -116,7 +151,7 @@ export class DchatLedger {
   }
   claimTerminalNotification(requestKey: string): DchatReceipt | null {
     const row = this.receipts.get(requestKey);
-    if (!row || row.state !== 'unknown' || !row.nativeTerminal || !row.execution?.instanceId || Object.keys(row.outputs).length) return null;
+    if (!row || (row.recovery?.status === 'reserved' || row.recovery?.status === 'interrupted') || row.state !== 'unknown' || !row.nativeTerminal || !row.execution?.instanceId || Object.keys(row.outputs).length) return null;
     return this.mutate(() => { row.state = 'accepted'; return structuredClone(row); });
   }
   /** Reserve before any send; throwing/timeout is always unknown, never automatically retry. */

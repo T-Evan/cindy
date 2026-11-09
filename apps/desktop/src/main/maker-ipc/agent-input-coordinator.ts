@@ -622,6 +622,8 @@ export interface AgentInputCoordinatorDeps {
    * 克隆重发原文 —— 那条消息文本上与普通用户消息毫无区别, 从文本无法认出重试意图。
    * 只靠文本嗅探会让最需要回流的那类失败恰好没有信号。
    */
+  requiresContinuationOnly?: (sessionId: string, sourceClientId: string) => boolean;
+  onRecoveryIntent?: (sessionId: string, sourceClientId: string, clientId: string) => void;
   onUiRetry?: (
     sessionId: string,
     clientId: string,
@@ -3336,7 +3338,7 @@ export class AgentInputCoordinator {
         ? { ...usageWait.info, ...(state.error && !providerRestart ? { error: state.error } : {}) }
         : null;
     const attemptToken = opts?.auto ? (opts.attemptToken ?? null) : null;
-    const continuationOnly = providerRestart || Boolean(
+    const continuationOnly = providerRestart || (recovery.kind === 'active-turn' && this.deps.requiresContinuationOnly?.(sessionId, recovery.item.clientId) === true) || Boolean(
       opts?.auto && isContinuationOnlyAutoResumeReason(previousAutoResumeInfo?.reason),
     );
     // Group inputs are hidden in the transcript and omitted by engine handoff.
@@ -3591,6 +3593,7 @@ export class AgentInputCoordinator {
       //
       // 带上这条重试消息的 clientId: 消费方(hook-control)用它做**权威归属** ——
       // 只有 clientId 对得上的那次 dispatch 才是目标续跑轮, 不再靠"首个事件"猜。
+      this.deps.onRecoveryIntent?.(sessionId, recovery.item.clientId, item.clientId);
       this.deps.onUiRetry?.(
         sessionId,
         item.clientId,

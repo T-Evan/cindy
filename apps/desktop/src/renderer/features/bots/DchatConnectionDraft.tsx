@@ -12,13 +12,14 @@ export function DchatConnectionDraft({ botId }: { botId: string }) {
   const [view, setView] = useState<DchatSetupView | null>(null);
   const [chatId, setChatId] = useState('');
   const [execute, setExecute] = useState(false);
+  const [control, setControl] = useState(false);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const request = useRef(0), mutation = useRef(0), submitting = useRef(false);
   const prefix = 'bots.channels.dchat';
   useEffect(() => {
     const generation = ++request.current;
-    submitting.current = false; setBusy(false); setFailed(false); setView(null); setChatId(''); setExecute(false);
+    submitting.current = false; setBusy(false); setFailed(false); setView(null); setChatId(''); setExecute(false); setControl(false);
     let hydrated = false;
     const load = () => {
       if (!api || submitting.current) return;
@@ -26,7 +27,7 @@ export function DchatConnectionDraft({ botId }: { botId: string }) {
       void api.get(botId).then(value => {
         if (request.current !== generation || mutation.current !== version || submitting.current) return;
         setView(value);
-        if (!hydrated) { setChatId(value.chatId ?? ''); setExecute(value.execute); hydrated = true; }
+        if (!hydrated) { setChatId(value.chatId ?? ''); setExecute(value.execute); setControl(value.control === true); hydrated = true; }
       }).catch(() => { if (request.current === generation && mutation.current === version) setFailed(true); });
     };
     load(); window.addEventListener('focus', load);
@@ -58,11 +59,18 @@ export function DchatConnectionDraft({ botId }: { botId: string }) {
       <Button variant="secondary" size="md" disabled={busy} onClick={() => setExecute(value => !value)} aria-pressed={execute}>
         {t(prefix + '.' + (execute ? 'executeOn' : 'executeOff'))}
       </Button>
+      <details><summary className="cursor-pointer text-12 text-[var(--text-secondary)]">{t(prefix + '.controlTitle')}</summary>
+        <Button variant="secondary" size="md" disabled={busy} aria-pressed={control} onClick={() => setControl(value => !value)}>
+          {t(prefix + '.' + (control ? 'controlOn' : 'controlOff'))}
+        </Button>
+        <p className="text-12 break-words text-[var(--text-secondary)]">{t(prefix + '.controlHelp', { command: '/cindy ' + botId + ' …' })}</p>
+      </details>
+      {view.interruptedCount ? <p role="status" className="text-12 text-[var(--text-secondary)]">{t(prefix + '.interrupted', { count: view.interruptedCount })}</p> : null}
       {view.accountId ? <p className="text-12 text-[var(--text-secondary)]">{t(prefix + '.verifiedAccount', { id: view.accountId })}</p> : null}
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" size="md" loading={busy} disabled={busy || !valid || view.selected.length !== paths.length}
-          onClick={() => void run(() => api.save({ botId, chatId, execute }))}>{t(prefix + '.verifySave')}</Button>
-        <Button variant="secondary" size="md" disabled={busy || !view.accountId || chatId !== view.chatId || execute !== view.execute}
+          onClick={() => void run(() => api.save({ botId, chatId, execute, control }))}>{t(prefix + '.verifySave')}</Button>
+        <Button variant="secondary" size="md" disabled={busy || !view.accountId || chatId !== view.chatId || execute !== view.execute || control !== (view.control === true)}
           onClick={() => void run(() => view.enabled ? api.disable(botId) : api.enable(botId))}>{t(prefix + '.' + (view.enabled ? 'disable' : 'enable'))}</Button>
       </div>
     </> : null}

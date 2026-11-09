@@ -11874,7 +11874,12 @@
         "verifySave": "Verificar e salvar conexão",
         "enable": "Ativar conexão",
         "disable": "Desativar conexão",
-        "setupFailed": "Não foi possível verificar ou atualizar a conexão. Verifique as ferramentas, o acesso à conversa e a disponibilidade do parceiro."
+        "setupFailed": "Não foi possível verificar ou atualizar a conexão. Verifique as ferramentas, o acesso à conversa e a disponibilidade do parceiro.",
+        "controlTitle": "Controle da conta",
+        "controlOn": "Controle da conta permitido",
+        "controlOff": "Controle da conta desativado",
+        "controlHelp": "Neste chat, sua conta local do D-Chat pode usar {{command}} para este colega. Mensagens automáticas não iniciam trabalho.",
+        "interrupted": "{{count}} entradas interrompidas aguardam recuperação verificada no Cindy. Não serão reenviadas."
       }
     },
     "voiceMode": {

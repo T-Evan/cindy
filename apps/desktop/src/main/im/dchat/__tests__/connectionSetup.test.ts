@@ -48,3 +48,11 @@ describe('Main-owned D-Chat setup', () => {
     expect((await f.setup.enable('bot_a')).status).toBe('offline');
   });
 });
+
+// Unit: choosing a command chat is explicit and cannot submit a remote owner ID.
+it('stores control pairing only after Main local-account verification and remains disabled', async () => {
+  const f = fixture(); await f.select();
+  const view = await f.setup.save({ botId: 'bot_a', chatId: '303', execute: true, control: true });
+  expect(f.bindings()[0]?.config).toMatchObject({ ownerId: '101', accountId: '101', controlChatId: '303' });
+  expect(view).toMatchObject({ control: true, enabled: false, status: 'saved' });
+});

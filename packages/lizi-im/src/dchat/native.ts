@@ -4,6 +4,7 @@ import type { DchatNative } from './transport.js';
 export interface DchatMacIdentityReader {
   /** Fresh identity from the signed-in local D-Chat client; never user-supplied text. */
   identity(): Promise<{ accountId: string }>;
+  members?(chatId: string): Promise<{ accountId: string; chatId: string; memberIds: string[] }>;
 }
 function data(response: DchatIpcResponse): Record<string, unknown> {
   if (response.success !== true || !response.data || typeof response.data !== 'object' || Array.isArray(response.data)) throw new Error('DCHAT_NATIVE_RESPONSE_INVALID');
@@ -18,6 +19,10 @@ export class DchatMacNative implements DchatNative {
     const identity = await this.reader.identity();
     if (!/^\d{1,128}$/.test(identity.accountId)) throw new Error('DCHAT_IDENTITY_UNAVAILABLE');
     return identity;
+  }
+  async members(chatId: string): Promise<{ accountId: string; chatId: string; memberIds: string[] }> {
+    if (this.deps.platform !== 'darwin' || !this.reader.members) throw new Error('DCHAT_MEMBERSHIP_UNAVAILABLE');
+    return this.reader.members(chatId);
   }
   async capabilities(): Promise<string[]> {
     const value = data(await this.deps.call('get_capabilities', {}, { socketPath: this.socketPath }));

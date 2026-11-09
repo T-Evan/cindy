@@ -14,6 +14,7 @@ export interface DchatSetupDeps {
   choose(field: DchatSetupPath): Promise<string | null>;
   verify(paths: Paths, chatId: string): Promise<{ accountId: string; chat: DchatChat }>;
   connected(connectionId: string): boolean;
+  interruptedCount?(botId: string): number;
   reload(): Promise<void>;
 }
 /** Only Main-selected paths and fresh local identity can produce a native binding.
@@ -31,6 +32,7 @@ export function createDchatSetupHandlers(deps: DchatSetupDeps) {
     const b = binding(botId), paths = { ...b, ...selected.get(key(botId)) };
     return { platformSupported: deps.platform === 'darwin', selected: fields.filter(field => !!paths[field]),
       accountId: b?.config.accountId ?? null, chatId: b?.config.chats[0]?.id ?? null,
+      control: !!b?.config.controlChatId, interruptedCount: deps.interruptedCount?.(botId) ?? 0,
       execute: !!b?.config.executeChatIds?.length, enabled: b?.enabled === true,
       status: !b ? 'unconfigured' : !b.enabled ? 'saved' : deps.connected(b.config.connectionId) ? 'connected' : 'offline' };
   }
@@ -58,8 +60,8 @@ export function createDchatSetupHandlers(deps: DchatSetupDeps) {
       if (chosen) selected.set(key(botId), { ...selected.get(key(botId)), [field]: chosen });
       return view(botId);
     }); },
-    save(input: { botId: string; chatId: string; execute: boolean }) {
-      if (!input || typeof input !== 'object' || Object.keys(input).some(k => !['botId', 'chatId', 'execute'].includes(k)) || typeof input.execute !== 'boolean') throw new Error('DCHAT_INVALID_SETUP');
+    save(input: { botId: string; chatId: string; execute: boolean; control?: boolean }) {
+      if (!input || typeof input !== 'object' || Object.keys(input).some(k => !['botId', 'chatId', 'execute', 'control'].includes(k)) || typeof input.execute !== 'boolean' || (input.control !== undefined && typeof input.control !== 'boolean')) throw new Error('DCHAT_INVALID_SETUP');
       return mutate(input.botId, async expected => {
         const previous = binding(input.botId);
         const paths = { ...previous, ...selected.get(key(input.botId)) } as Paths;
@@ -67,7 +69,7 @@ export function createDchatSetupHandlers(deps: DchatSetupDeps) {
         const connectionId = previous?.config.connectionId ?? 'dchat-' + createHash('sha256').update(randomUUID()).digest('hex').slice(0, 32);
         await deps.write({ ...paths, enabled: false, socketPath: '/tmp/dc-workspace-server.prod.socket',
           config: { connectionId, botId: input.botId, accountId: proof.accountId, ownerId: proof.accountId,
-            chats: [proof.chat], executeChatIds: input.execute ? [proof.chat.id] : [], replyMode: 'draft', sendMode: 'attributed' } }, expected);
+            chats: [proof.chat], ...(input.control ? { controlChatId: proof.chat.id } : {}), executeChatIds: input.execute ? [proof.chat.id] : [], replyMode: 'draft', sendMode: 'attributed' } }, expected);
         assert(expected); selected.delete(key(input.botId)); await deps.reload(); assert(expected); return view(input.botId);
       });
     },

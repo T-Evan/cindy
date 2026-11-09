@@ -11874,7 +11874,12 @@
         "verifySave": "Vérifier et enregistrer la connexion",
         "enable": "Activer la connexion",
         "disable": "Désactiver la connexion",
-        "setupFailed": "Impossible de vérifier ou modifier la connexion. Vérifiez les outils, l’accès à la conversation et la disponibilité du partenaire."
+        "setupFailed": "Impossible de vérifier ou modifier la connexion. Vérifiez les outils, l’accès à la conversation et la disponibilité du partenaire.",
+        "controlTitle": "Contrôle du compte",
+        "controlOn": "Contrôle du compte autorisé",
+        "controlOff": "Contrôle du compte désactivé",
+        "controlHelp": "Dans ce chat, votre compte D-Chat local peut utiliser {{command}} pour ce coéquipier. Les messages automatiques ne déclenchent pas de travail.",
+        "interrupted": "{{count}} entrées interrompues attendent une reprise vérifiée dans Cindy. Elles ne seront pas renvoyées."
       }
     },
     "voiceMode": {

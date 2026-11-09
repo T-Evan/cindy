@@ -597,6 +597,8 @@ export interface ImTurnRunner {
    */
   noteChannelTurnSource(session: MakerSession, source: ChannelTurnSource | undefined): void;
   runAgentTurn(args: ImRunAgentTurnArgs): Promise<void>;
+  /** Content-free cleanup after a Main-owned, accepted native recovery terminal. */
+  settleObservedTurn(identity: { sessionId: string; instanceId: string; turnGeneration: number; inputMessageId: string; terminal: 'done' | 'error' | 'aborted' }): boolean;
   /**
    * 把渠道用户消息**提前**写进本地 messages 表 —— 只给「dispatch 之前还有重活」
    * 的渠道用(群上下文拼装: 回翻群历史 + 轻量模型扫描, 实测 15~60s)。
@@ -4282,6 +4284,24 @@ export function createTurnRunner(
     turn.presenter.replaceBody('');
   }
 
+  /** An external durable observer already owns terminal delivery. Retire only the
+   * exact input and live native generation; never finalize/export its old buffer
+   * or release a later input just because it shares the same Session. */
+  function settleObservedTurn(identity: { sessionId: string; instanceId: string; turnGeneration: number; inputMessageId: string; terminal: 'done' | 'error' | 'aborted' }): boolean {
+    const state = sessionStates.get(identity.sessionId), turn = state?.queue[0];
+    if (!state || !turn || output.kind !== 'chunked-text' || !output.bindToInput
+      || turn.userMessageId !== identity.inputMessageId || state.makerSession.instanceId !== identity.instanceId
+      || state.makerSession.getTurnGeneration() !== identity.turnGeneration) return false;
+    state.queue.shift(); turn.done = true; turn.terminalKind = identity.terminal;
+    clearSilentStopSettleWait(turn); clearActivityTicker(turn);
+    turn.streamingHandle?.close();
+    void turn.streamingHandlePromise?.then(handle => handle?.close()).catch(() => {});
+    turn.presenter.replaceBody('');
+    completeTurnCallback(turn); settleTurnTerminal(turn);
+    if (!finishDeferredDetachIfIdle(state)) maybeDispatchNextQueued(state, turn.userId);
+    return true;
+  }
+
   // ── cleanup (binding detach / dispose) ──────────────────────────────────────
 
   /**
@@ -4599,6 +4619,7 @@ export function createTurnRunner(
       state.relayedTurn = isRelayedChannelTurnSource(source);
     },
     runAgentTurn,
+    settleObservedTurn,
     persistInboundUserMessageEarly,
     dispatchAgentTurn,
     resolveRouteTarget,

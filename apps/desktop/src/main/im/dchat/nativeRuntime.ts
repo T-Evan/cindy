@@ -1,7 +1,8 @@
 import path from 'node:path';
+import { onInputRecovery } from '../../maker-ipc/inputRecoverySignal';
 import { createHash, randomUUID } from 'node:crypto';
 import { getMaker } from '../../maker-host';
-import { createDchatExecutionObserver } from './executionObserver';
+import { createDchatExecutionObserver, createDchatRecoveryListener } from './executionObserver';
 import { eq } from 'drizzle-orm';
 import { DchatCliReader, DchatMacNative, DchatSqlcipherReader, DchatNativeInlet, parseDchatConfig, type DchatConfig } from '@cindy/im';
 import { getDbClient } from '../../localDb/client/current';
@@ -34,6 +35,7 @@ function normalize(raw: unknown): { bindings: NativeBinding[] } {
     if (value.revision !== undefined && (typeof value.revision !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.revision))) throw new Error('DCHAT_NATIVE_CONFIG_INVALID');
     const paths = [value.identityExecutable, value.sqlcipherExecutable, value.component, value.databaseRoot, value.socketPath];
     if (paths.some(p => typeof p !== 'string' || !path.isAbsolute(p) || p.length > 4096 || p.includes('\0'))) throw new Error('DCHAT_NATIVE_CONFIG_INVALID');
+    if (value.config?.ownerId !== value.config?.accountId) throw new Error('DCHAT_OWNER_PAIRING_REQUIRED');
     return { ...(value.revision ? { revision: value.revision } : {}), enabled: value.enabled, config: parseDchatConfig(value.config), identityExecutable: value.identityExecutable,
       sqlcipherExecutable: value.sqlcipherExecutable, component: value.component, databaseRoot: value.databaseRoot, socketPath: value.socketPath };
   });
@@ -46,7 +48,7 @@ const settings = createOverrideSettingsFile({
   logLoadedValue: false, logReadErrorDetails: false, log, label: 'D-Chat native bindings',
 });
 const fingerprint = (value: NativeBinding): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const running: Array<{ inlet: DchatNativeInlet; orchestrator: ImOrchestrator; observer: ReturnType<typeof createDchatExecutionObserver> }> = [];
+const running: Array<{ im: import('@cindy/im').DchatIM; inlet: DchatNativeInlet; orchestrator: ImOrchestrator; observer: ReturnType<typeof createDchatExecutionObserver>; releaseRecovery(): void }> = [];
 let generation = 0;
 let runtimeConfig: ImOrchestratorConfig | null = null;
 export function readDchatNativeBindings(): NativeBinding[] {
@@ -64,6 +66,10 @@ export function dchatNativeStatus(connectionId: string): boolean {
   return running.some(item => item.orchestrator.adapter.getBotContextId?.() === connectionId
     && item.orchestrator.adapter.im.getStatus().kind === 'connected');
 }
+export function dchatInterruptedCount(botId: string): number {
+  return running.flatMap(item => item.im.executionInputs())
+    .filter(row => row.destination.botId === botId && row.recovery?.status === 'interrupted').length;
+}
 export async function reloadDchatNativeConnections(): Promise<void> {
   if (!runtimeConfig) throw new Error('DCHAT_RUNTIME_NOT_READY');
   await startDchatNativeConnections(runtimeConfig);
@@ -73,7 +79,7 @@ export async function stopDchatNativeConnections(): Promise<void> {
   generation++;
   const previous = running.splice(0);
   await Promise.all(previous.map(async item => {
-    item.observer.stop();
+    item.releaseRecovery(); item.observer.stop();
     await item.inlet.stop();
     try { await item.orchestrator.disposeAllSessions(); } finally { item.orchestrator.unregister(); }
   }));
@@ -101,10 +107,15 @@ export async function startDchatNativeConnections(config: ImOrchestratorConfig):
     const identity = new DchatCliReader(binding.identityExecutable);
     const reader = new DchatSqlcipherReader({ executable: binding.sqlcipherExecutable, component: binding.component,
       databaseRoot: binding.databaseRoot, identity: () => identity.identity() });
-    const native = new DchatMacNative(reader, binding.socketPath);
+    const native = new DchatMacNative({ identity: () => reader.identity(), members: chatId => identity.members(chatId) }, binding.socketPath);
     const directory = ownerScopedImUserDataPath('dchat', 'native-runtime', binding.config.connectionId);
-    const im = createBotDchatIM({ config: binding.config, native, current, authorizationKey: expected,
+    const im = createBotDchatIM({ config: binding.config, native, current, authorizationKey: expected, requireLiveMembership: true,
       executionBound: receipt => observer.observe(receipt),
+      recoverySettled: receipt => {
+        const e = receipt.execution!;
+        if (!orchestrator.turnRunner.settleObservedTurn({ sessionId: e.sessionId, instanceId: e.instanceId!, turnGeneration: e.turnGeneration!,
+          inputMessageId: receipt.requestKey, terminal: receipt.nativeTerminal! })) throw new Error('DCHAT_STALE_EXECUTION');
+      },
       storage: new DchatPrivateJson(path.join(directory, 'receipts.json'), current),
       bindingAvailable: async botId => {
         if (!current()) return false;
@@ -129,17 +140,18 @@ export async function startDchatNativeConnections(config: ImOrchestratorConfig):
       onSession: callback => getMaker().on(event => { if (event.type === 'session:created') callback(event.session); }),
       onError: () => log.warn('D-Chat execution observation unavailable; no replay'),
     });
+    const releaseRecovery = onInputRecovery(createDchatRecoveryListener({ im, observer, current }));
     const orchestrator = wireDchatOrchestrator(im, config, { instanceKey: 'dchat#' + binding.config.connectionId, companionBotId: binding.config.botId });
     const inlet = new DchatNativeInlet(binding.config, { reader, im, storage: new DchatPrivateJson(path.join(directory, 'cursors.json'), current), current,
       onError: () => { log.warn('D-Chat native inlet stopped; inspect connection in Cindy'); } });
-    running.push({ inlet, orchestrator, observer });
+    running.push({ im, inlet, orchestrator, observer, releaseRecovery });
     try {
       await im.init();
       if (im.getStatus().kind !== 'connected' || !current()) throw new Error('DCHAT_CONNECTION_UNAVAILABLE');
       await observer.restore();
       await inlet.start(); log.info('D-Chat native inlet started');
     } catch {
-      observer.stop(); await inlet.stop(); await orchestrator.disposeAllSessions(); orchestrator.unregister();
+      releaseRecovery(); observer.stop(); await inlet.stop(); await orchestrator.disposeAllSessions(); orchestrator.unregister();
       const index = running.findIndex(item => item.inlet === inlet); if (index >= 0) running.splice(index, 1);
       log.warn('D-Chat native connection unavailable; no fallback execution');
     }

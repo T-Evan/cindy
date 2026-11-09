@@ -12,9 +12,12 @@ export type { DchatLedgerStorage } from './ledger.js';
 export interface DchatIMOptions {
   config: DchatConfig; native: DchatNative; storage: DchatLedgerStorage;
   authorizationKey?: string;
+  requireLiveMembership?: boolean;
   current?(): boolean;
   context?(input: DchatInbound): Promise<void>;
   executionBound?(receipt: import('./ledger.js').DchatReceipt): void;
+  /** Host settles only the matching shared runner turn after confirmed recovery. */
+  recoverySettled?(receipt: import('./ledger.js').DchatReceipt): void;
   bindingAvailable(botId: string): Promise<boolean>;
   draft(input: { requestKey: string; chatId: string; text: string }): Promise<void>;
 }
@@ -29,6 +32,7 @@ export class DchatIM extends BaseIM implements TextChannelIM {
   private transport: DchatTransport | null = null;
   private account: unknown | null = null;
   private generation = 0;
+  private recoveryNotifications: Promise<void> = Promise.resolve();
   constructor(host: IMHost, private readonly options: DchatIMOptions) {
     super('dchat', host);
     this.options = { ...options, config: parseDchatConfig(options.config) };
@@ -123,12 +127,53 @@ export class DchatIM extends BaseIM implements TextChannelIM {
       && !!row.execution.instanceId && (event.agentMeta?.replyToClientId === undefined || event.agentMeta.replyToClientId === row.execution.clientId);
     });
   }
+  recoveryForInput(sessionId: string, clientId: string) {
+    return this.executionInputs().find(row => row.execution?.sessionId === sessionId && row.execution.clientId === clientId);
+  }
+  async adoptExecution(sourceClientId: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }) {
+    const row = this.recoveryForInput(execution.sessionId, sourceClientId);
+    if (!row || !this.transport || row.authorizationKey !== this.options.authorizationKey || this.options.current?.() === false
+      || !await this.options.bindingAvailable(row.destination.botId)
+      || (await this.options.native.identity()).accountId !== row.destination.accountId || !this.current(this.generation)
+      || this.options.current?.() === false || !this.options.config.executeChatIds?.includes(row.destination.chatId)) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+    return this.transport.ledger.adoptExecution(row.requestKey, sourceClientId, execution);
+  }
+  async confirmRecovery(execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }): Promise<void> {
+    const row = this.recoveryForInput(execution.sessionId, execution.clientId);
+    if (!row || !this.transport || !this.current(this.generation) || this.options.current?.() === false) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+    if (row.authorizationKey !== this.options.authorizationKey || !await this.options.bindingAvailable(row.destination.botId)
+      || (await this.options.native.identity()).accountId !== row.destination.accountId || !this.current(this.generation)
+      || this.options.current?.() === false || !this.options.config.executeChatIds?.includes(row.destination.chatId)) {
+      this.transport.ledger.interruptRecovery(row.requestKey); throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+    }
+    this.transport.ledger.confirmRecovery(row.requestKey, execution);
+    await this.recoverTerminalNotifications();
+  }
+  reattachExecution(requestKey: string, execution: NonNullable<import('./ledger.js').DchatReceipt['execution']>): void { this.transport?.ledger.reattachExecution(requestKey, execution); }
+  interruptRecovery(requestKey: string): void { this.transport?.ledger.interruptRecovery(requestKey); }
   executionInputs() { return this.transport?.ledger.executionInputs() ?? []; }
   recordNativeTerminal(requestKey: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }, terminal: 'done' | 'error' | 'aborted'): void {
     if (!this.transport || !this.current(this.generation)) throw new Error('DCHAT_CONNECTION_UNAVAILABLE');
     this.transport.ledger.recordNativeTerminal(requestKey, execution, terminal);
   }
-  async recoverTerminalNotifications(): Promise<void> { await this.transport?.recoverTerminalNotifications(); }
+  async recoverTerminalNotifications(): Promise<void> {
+    const transport = this.transport;
+    const next = this.recoveryNotifications.catch(() => {}).then(async () => {
+      try { await transport?.recoverTerminalNotifications(); } finally {
+        // A host continuation belongs to the old active lane. Its terminal is
+        // observed outside the shared presenter; release that exact anchor so
+        // later never-dispatched inputs can run without consuming its result.
+        if (this.transport === transport) for (const [lane, active] of this.active) {
+          const row = transport?.ledger.read(active.receipt.requestKey);
+          if (row?.nativeTerminal && row.recovery?.status === 'running') {
+            this.options.recoverySettled?.(row);
+            this.release(lane, row.requestKey);
+          }
+        }
+      }
+    });
+    this.recoveryNotifications = next; await next;
+  }
   queuedInputs() { return this.transport?.ledger.queued() ?? []; }
   private release(lane: string, messageId: string): void {
     this.active.delete(lane); this.byMessage.delete(messageId);

@@ -245,13 +245,15 @@ export function decodeDchatPage(raw: unknown, accountId: string, chatId: string,
     const author = content.author as { id?: unknown; type?: unknown } | undefined;
     if (!id(row.senderId) || row.senderKnown !== 1 || (row.robotId !== '' && row.robotId !== null && row.robotId !== undefined)
       || (author && (author.id !== row.senderId || author.type !== 'user'))) return null;
+    const metadata = content.metadata as Record<string, unknown> | undefined;
+    const automationSource = metadata && typeof metadata.source === 'string' ? metadata.source : undefined;
     const mentions = Array.isArray(content.mentions) ? content.mentions : [];
     const invoked = mentions.some((mention: unknown) => {
       const m = mention as { uid?: unknown; user_type?: unknown } | null;
       return m?.uid === accountId && m.user_type === 'User';
     });
     return { accountId, chatId, messageId: row.messageId, senderId: row.senderId, senderName: typeof row.senderName === 'string' ? row.senderName.slice(0, 256) : row.senderId,
-      text: row.text, sentAt: Number(row.timestamp), sequence: seq, previousId: row.previousId, sentBySelf: row.senderId === accountId, invoked };
+      text: row.text, ...(automationSource ? { automationSource } : {}), sentAt: Number(row.timestamp), sequence: seq, previousId: row.previousId, sentBySelf: row.senderId === accountId, invoked };
   });
   const parentId = value.parent.length === 1 && id(value.parent[0]) ? value.parent[0] : '';
   if (chat.kind === 'subchannel' && !parentId) throw new Error('DCHAT_MEMBERSHIP_UNAVAILABLE');

@@ -1,3 +1,4 @@
+import type { InputRecoveryIdentity, InputRecoveryListener } from '../../maker-ipc/inputRecoverySignal';
 import { isImSubagentEvent } from '../shared/agentEventScope';
 import type { AgentEvent } from '@cindy/maker-core';
 import { isTerminalAgentErrorEvent } from '@cindy/maker-core';
@@ -54,11 +55,79 @@ export function createDchatExecutionObserver(deps: {
   });
   return {
     observe,
+    async takeover(sourceClientId: string, execution: { sessionId: string; clientId: string; instanceId: string; turnGeneration: number }): Promise<void> {
+      if (!current()) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      const previous = deps.im.recoveryForInput(execution.sessionId, sourceClientId);
+      const session = deps.session(execution.sessionId);
+      if (!previous || !session || session.instanceId !== execution.instanceId || session.getTurnGeneration() !== execution.turnGeneration) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      const receipt = await deps.im.adoptExecution(sourceClientId, execution);
+      if (!current()) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      subscriptions.get(receipt.requestKey)?.(); subscriptions.delete(receipt.requestKey);
+      observe(receipt);
+    },
     async restore(): Promise<void> {
       if (!current()) return;
       await deps.im.recoverTerminalNotifications();
-      if (current()) for (const receipt of deps.im.executionInputs()) observe(receipt);
+      if (current()) for (const receipt of deps.im.executionInputs()) {
+        const live = deps.session(receipt.execution!.sessionId);
+        if (!receipt.nativeTerminal && (!live || live.instanceId !== receipt.execution!.instanceId || live.getTurnGeneration() !== receipt.execution!.turnGeneration)) deps.im.interruptRecovery(receipt.requestKey);
+        else if (!receipt.nativeTerminal && receipt.recovery?.status === 'interrupted' && !receipt.recovery.sourceClientId) deps.im.reattachExecution(receipt.requestKey, receipt.execution!);
+        observe(receipt);
+      }
     },
     stop(): void { stopped = true; releaseMaker(); for (const release of subscriptions.values()) release(); subscriptions.clear(); },
+  };
+}
+
+/** Consumes only Main coordinator intent/reservation/accepted-dispatch receipts.
+ * A replacement Session alone never creates an intent. Cancellation closes the
+ * reserved observer before any later event can claim an outbound notification. */
+export function createDchatRecoveryListener(deps: {
+  im: DchatIM; observer: ReturnType<typeof createDchatExecutionObserver>; current(): boolean;
+}): InputRecoveryListener {
+  const intents = new Map<string, { sessionId: string; clientId: string; sourceClientId: string; identity?: InputRecoveryIdentity }>();
+  const key = (identity: { sessionId: string; clientId: string }) => JSON.stringify([identity.sessionId, identity.clientId]);
+  return {
+    continuation: (source, clientId) => {
+      const candidates = deps.im.executionInputs().filter(row => row.execution?.sessionId === source.sessionId
+        && row.execution.instanceId === source.instanceId && row.execution.turnGeneration === source.turnGeneration
+        && !row.nativeTerminal && !Object.keys(row.outputs).length);
+      if (!candidates.length) return;
+      if (candidates.length !== 1 || !deps.current()) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      const sourceClientId = candidates[0]!.execution!.clientId;
+      intents.set(key({ sessionId: source.sessionId, clientId }), { sessionId: source.sessionId, clientId, sourceClientId });
+    },
+    owns: (sessionId, clientId) => !!deps.im.recoveryForInput(sessionId, clientId),
+    intent: (sessionId, sourceClientId, clientId) => {
+      if (!deps.current()) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      intents.set(key({ sessionId, clientId }), { sessionId, clientId, sourceClientId });
+    },
+    reserve: async identity => {
+      const intent = intents.get(key(identity)); if (!intent) return;
+      if (!deps.current()) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      await deps.observer.takeover(intent.sourceClientId, identity);
+      // cancel may win while identity/binding verification awaits.
+      if (intents.get(key(identity)) !== intent || !deps.current()) {
+        const row = deps.im.recoveryForInput(identity.sessionId, identity.clientId);
+        if (row) deps.im.interruptRecovery(row.requestKey);
+        throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      }
+      intent.identity = identity;
+    },
+    confirm: async identity => {
+      const intent = intents.get(key(identity)); if (!intent) return;
+      if (!deps.current() || !intent.identity || intent.identity.instanceId !== identity.instanceId || intent.identity.turnGeneration !== identity.turnGeneration) throw new Error('DCHAT_RECOVERY_UNVERIFIED');
+      await deps.im.confirmRecovery(identity); intents.delete(key(identity));
+    },
+    cancel: (sessionId, clientId) => {
+      for (const [k, intent] of intents) {
+        if (intent.sessionId !== sessionId || (clientId && clientId !== intent.clientId)) continue;
+        if (intent.identity) {
+          const row = deps.im.recoveryForInput(sessionId, intent.clientId);
+          if (row) deps.im.interruptRecovery(row.requestKey);
+        }
+        intents.delete(k);
+      }
+    },
   };
 }

@@ -11776,7 +11776,12 @@
         "verifySave": "Verify and Save Connection",
         "enable": "Enable Connection",
         "disable": "Disable Connection",
-        "setupFailed": "Could not verify or update the connection. Check the local readers, conversation access and teammate availability."
+        "setupFailed": "Could not verify or update the connection. Check the local readers, conversation access and teammate availability.",
+        "controlTitle": "Account control",
+        "controlOn": "Account control allowed",
+        "controlOff": "Account control off",
+        "controlHelp": "In this chat, your local D-Chat account can address this teammate with {{command}}. Automatic messages do not trigger work.",
+        "interrupted": "{{count}} interrupted inputs await verified recovery in Cindy. They will not be replayed."
       }
     },
     "voiceMode": {

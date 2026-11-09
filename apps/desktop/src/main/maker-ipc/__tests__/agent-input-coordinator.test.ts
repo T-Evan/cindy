@@ -1594,6 +1594,8 @@ function unsupportedChatBridgeImageError(feature = "input content part 'input_im
 }
 
 function createHarness(opts?: {
+  requiresContinuationOnly?: AgentInputCoordinatorDeps['requiresContinuationOnly'];
+  onRecoveryIntent?: AgentInputCoordinatorDeps['onRecoveryIntent'];
   getRecoveryContextSnapshot?: (sessionId: string, userClientId: string) => Promise<RecoveryContextSnapshot>;
   providerGroupSwitchCandidate?: AgentInputCoordinatorDeps['providerGroupSwitchCandidate'];
 }) {
@@ -1742,6 +1744,8 @@ function createHarness(opts?: {
   >(async () => []);
   const rewindPersistedUserMessageAfterClear = vi.fn(async (_sessionId: string, _clientId: string) => {});
   const coordinator = new AgentInputCoordinator({
+    requiresContinuationOnly: opts?.requiresContinuationOnly,
+    onRecoveryIntent: opts?.onRecoveryIntent,
     rewindPersistedUserMessageAfterClear,
     sendToAgent,
     steerToAgent,
@@ -16459,4 +16463,25 @@ describe('teammate relay review intent', () => {
     expect(h.sendToAgent).toHaveBeenCalledTimes(1);
     expect(h.sendToAgent.mock.calls[0][3][AUTO_REVIEW_SOURCE_CONTENT]).toBe(expected);
   });
+});
+
+// Unit: D-Chat may already have executed tools with zero visible output. The
+// real coordinator must continue instead of replaying, and identify the exact
+// source client before the new dispatch, without claiming a later queued input.
+it('binds recovery intent to the failed native client and never replays its side-effect text', async () => {
+  const intent = vi.fn();
+  const h = createHarness({ requiresContinuationOnly: (_sid, id) => id === 'native-input', onRecoveryIntent: intent });
+  const sid = 'dchat-exact-recovery';
+  h.coordinator.enqueue(sid, makeItem('native-input', 'perform side effect'));
+  await flush();
+  h.setRunning(false); h.coordinator.onTurnEvent(sid, 'error', 'connection interrupted');
+  await flush();
+  await h.coordinator.retryLastError(sid); await flush();
+  const continued = h.onDispatchedUserTurn.mock.calls[1]?.[1];
+  expect(continued?.clientId).not.toBe('native-input');
+  expect(h.sendToAgent.mock.calls[1]?.[1]).toEqual({ type: 'user', content: CONTINUE_AFTER_ERROR_PROMPT });
+  expect(intent).toHaveBeenCalledExactlyOnceWith(sid, 'native-input', continued!.clientId);
+  h.setRunning(false); h.coordinator.onTurnEvent(sid, 'done'); await flush();
+  h.coordinator.enqueue(sid, makeItem('later-input', 'other work')); await flush();
+  expect(intent).toHaveBeenCalledTimes(1);
 });

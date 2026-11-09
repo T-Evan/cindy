@@ -13,6 +13,7 @@ import { pagePermissionGrants } from '../mcp-apps/pagePermissions.js';
 import { setPluginPageToolRunner } from '../mcp-integrations/plugin-app-registry.js';
 import { getCindyGhostsMcpDeps } from '../mcp-integrations/ghost.js';
 import { pluginAppResult } from '../mcp-apps/pluginCards.js';
+import { inputRecoveryRequiresContinuation, noteInputRecoveryIntent, noteHostInputContinuation, reserveInputRecovery, confirmInputRecovery, cancelInputRecovery } from './inputRecoverySignal';
 import { restorePluginPageSession } from '../mcp-apps/pluginPageCall.js';
 import { resumeInterruptedScheduleRun } from '../scheduler-host/index.js';
 import { readTaskDeliveryNote } from '../bot-autonomy/hub.js';
@@ -6105,11 +6106,14 @@ async function handleSilentStopTurnEnd(
           adoptedGeneration,
         ),
     });
+    let recoveryClientId: string | undefined;
     try {
       // The next Claude running boundary belongs to the same user-visible turn.
       // Mark it before send(), which may synchronously emit status events.
       productTurnWallClockTracker.preserveForContinuation(session.id);
       const clientId = randomUUID();
+      recoveryClientId = clientId;
+      noteHostInputContinuation({ sessionId: session.id, instanceId: session.instanceId, turnGeneration: generation }, clientId);
       const sendResult = await session.sendHostTurnContinuation(
         { type: 'user', content: SILENT_STOP_RESUME_PROMPT },
         {
@@ -6142,6 +6146,7 @@ async function handleSilentStopTurnEnd(
                   : {}),
               },
             });
+            await reserveInputRecovery({ sessionId: session.id, clientId, instanceId: session.instanceId, turnGeneration: session.getTurnGeneration() });
           },
         },
       );
@@ -6152,6 +6157,7 @@ async function handleSilentStopTurnEnd(
         context: `maker-ipc.silent-stop.auto-resume sessionId=${session.id}`,
       });
       if (!outcome.dispatched) {
+        cancelInputRecovery(session.id, clientId);
         silentStopAutoResumeGuard.noteResumeSendFailed(session.id);
         // Session 在派发确认前失败会回滚 turnGeneration;绑定必须跟着回滚,
         // 否则失败收口合成的 done 会因 generation 不匹配被 ownership 守卫丢弃,
@@ -6164,11 +6170,15 @@ async function handleSilentStopTurnEnd(
         await surfaceSilentStopExhaustedBanner(session.id);
         await settleSilentStopDone(session.id, 'exhausted', turnLeaseId, session, generation);
       } else {
+        try {
+          await confirmInputRecovery({ sessionId: session.id, clientId, instanceId: session.instanceId, turnGeneration: session.getTurnGeneration() });
+        } catch { log.warn('native continuation accepted; channel observation remains unavailable'); }
         // 只在供应商确认派发后丢弃原结束时间；未派发或抛出时由失败收口按原时间提交。
         discardEndedActivity();
         log.info('silent-stop auto-resume dispatched', { sessionId: session.id });
       }
     } catch (err) {
+      cancelInputRecovery(session.id, recoveryClientId);
       silentStopAutoResumeGuard.noteResumeSendFailed(session.id);
       binding.rollbackBinding();
       log.warn('silent-stop auto-resume send failed', {
@@ -19757,6 +19767,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       sess = readCurrentSteerSession();
       // 同轮插话也属于新输入。必须在 vendor await 前通知，旧轮可能先于 steer ack 结束。
       // 共用入口同时覆盖 INPUT_STEER、队列提升和旧 STEER IPC。
+      cancelInputRecovery(sessionId);
       publishUiSessionIntervention(sessionId);
       // A channel route vouches only for its triggering sender; steered input ends that.
       noteInteractionRouteSteer(sess);
@@ -21002,6 +21013,8 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       settleQueuedAttachmentPersistenceFailure(sessionId, item.clientId, opts.retainForRetry);
     },
     onDispatchedUserTurn: async (sessionId, item, preVendorDispatchAt): Promise<void> => {
+      const recovered = maker.getSession(sessionId);
+      if (recovered) await confirmInputRecovery({ sessionId, clientId: item.clientId, instanceId: recovered.instanceId, turnGeneration: recovered.getTurnGeneration() });
       if (!item.autoResume) {
         void touchSessionActivityInDb(sessionId, preVendorDispatchAt);
       }
@@ -21048,6 +21061,8 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     onUserAction: (sessionId) => usageLimitAutoResume.noteUserAction(sessionId),
     // 失败 turn 重试 → hook 侧把这一轮接回渠道那条已收口的消息。source 区分
     // 人工与自动续跑：只有真人接手才作废 scheduler waiter，自动路径不能取消自己。
+    requiresContinuationOnly: inputRecoveryRequiresContinuation,
+    onRecoveryIntent: noteInputRecoveryIntent,
     onUiRetry: (sessionId, clientId, source, attemptToken) => {
       const quotaClaim = pendingSchedulerAutoResumeRunBySession.get(sessionId);
       if (source === 'auto' && quotaClaim?.usageLimitToken !== undefined) {
@@ -21080,6 +21095,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       // recovery was superseded. Fail the scheduler waiter synchronously so it
       // cannot consume that unrelated turn's text/done as this run's result.
       failPendingSchedulerAutoResume(sessionId);
+      cancelInputRecovery(sessionId);
       publishUiSessionIntervention(sessionId);
     },
     // persistedContent can be a JSON envelope (attachments, pasted ranges): read the text the owner typed.
@@ -21105,6 +21121,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       // 但预算充值仍只发生在真人消息的持久化路径，自动输入不会重置 episode。
       autoResumeBookkeeping.supersedeUnclaimedErrorForUserIntervention(sessionId);
       failPendingSchedulerAutoResume(sessionId);
+      cancelInputRecovery(sessionId);
       publishUiSessionIntervention(sessionId);
     },
     onRejectedUserTurn: (sessionId, item) => {
@@ -21253,10 +21270,12 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       // 观察器挂上就不丢正文开头, 而 live session 此刻必然已就绪。clientId 对得上的
       // 才是目标续跑轮 —— 绕过 coordinator 的 turn(silent-stop 自动续跑)不走这里,
       // 结构上不可能被误认。详见 uiContinuationSignal 的模块注释。
+      if (liveSession) await reserveInputRecovery({ sessionId, clientId: item.clientId, instanceId: liveSession.instanceId, turnGeneration: liveSession.getTurnGeneration() });
       publishUiTurnDispatching(sessionId, item.clientId);
       await gitSnapshotCoordinator?.onTurnStart(sessionId, signal);
     },
     onUndispatchedUserTurn: (sessionId, item, disposition) => {
+      cancelInputRecovery(sessionId, item.clientId);
       void settleTodoDispatch(sessionId, item.clientId, false);
       welcomeDispatchReceipts.settle(sessionId, item.clientId, false);
       // 目标轮落库了却没能 dispatch(取消 / 失败): 记账该立刻还回去, 而不是等超时。

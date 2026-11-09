@@ -11776,7 +11776,12 @@
         "verifySave": "Verbindung prüfen und speichern",
         "enable": "Verbindung aktivieren",
         "disable": "Verbindung deaktivieren",
-        "setupFailed": "Verbindung konnte nicht geprüft oder geändert werden. Prüfe Lesewerkzeuge, Unterhaltungszugriff und Partnerstatus."
+        "setupFailed": "Verbindung konnte nicht geprüft oder geändert werden. Prüfe Lesewerkzeuge, Unterhaltungszugriff und Partnerstatus.",
+        "controlTitle": "Kontosteuerung",
+        "controlOn": "Kontosteuerung erlaubt",
+        "controlOff": "Kontosteuerung aus",
+        "controlHelp": "In diesem Chat kann Ihr lokales D-Chat-Konto mit {{command}} diesen Teamkollegen ansprechen. Automatische Nachrichten starten keine Arbeit.",
+        "interrupted": "{{count}} unterbrochene Eingaben warten in Cindy auf eine bestätigte Wiederherstellung. Sie werden nicht erneut gesendet."
       }
     },
     "voiceMode": {

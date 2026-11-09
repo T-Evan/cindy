@@ -6,10 +6,10 @@ mountPage({
   host: ctx => {
     let view: DchatSetupView = { platformSupported: ctx.case !== 'unsupported',
       selected: ['identityExecutable', 'sqlcipherExecutable', 'component', 'databaseRoot'],
-      accountId: '10001', chatId: '30003', execute: false, enabled: ctx.case === 'offline', status: ctx.case === 'offline' ? 'offline' : 'saved' };
+      accountId: '10001', chatId: '30003', execute: false, control: false, interruptedCount: ctx.case === 'control' ? 2 : 0, enabled: ctx.case === 'offline', status: ctx.case === 'offline' ? 'offline' : 'saved' };
     return { dchatSetup: {
       get: async () => view, pick: async () => view,
-      save: async input => (view = { ...view, chatId: input.chatId, execute: input.execute, enabled: false, status: 'saved' }),
+      save: async input => (view = { ...view, chatId: input.chatId, execute: input.execute, control: input.control === true, enabled: false, status: 'saved' }),
       enable: async () => { if (ctx.case === 'failure') throw new Error('synthetic local verification failure'); return (view = { ...view, enabled: true, status: 'connected' }); },
       disable: async () => (view = { ...view, enabled: false, status: 'saved' }),
     } };

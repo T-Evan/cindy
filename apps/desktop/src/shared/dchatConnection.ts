@@ -16,13 +16,13 @@ export type DchatSetupPath = 'identityExecutable' | 'sqlcipherExecutable' | 'com
 export interface DchatSetupView {
   platformSupported: boolean; selected: DchatSetupPath[];
   accountId: string | null; chatId: string | null;
-  execute: boolean; enabled: boolean;
+  execute: boolean; enabled: boolean; control?: boolean; interruptedCount?: number;
   status: 'unconfigured' | 'saved' | 'connected' | 'offline';
 }
 export interface DchatSetupApi {
   get(botId: string): Promise<DchatSetupView>;
   pick(botId: string, field: DchatSetupPath): Promise<DchatSetupView>;
-  save(input: { botId: string; chatId: string; execute: boolean }): Promise<DchatSetupView>;
+  save(input: { botId: string; chatId: string; execute: boolean; control?: boolean }): Promise<DchatSetupView>;
   enable(botId: string): Promise<DchatSetupView>;
   disable(botId: string): Promise<DchatSetupView>;
 }

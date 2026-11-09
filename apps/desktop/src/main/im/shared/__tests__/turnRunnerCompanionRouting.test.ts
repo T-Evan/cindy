@@ -81,6 +81,7 @@ vi.mock('../apiKey', () => ({ readXdGatewayApiKey: mocks.readXdGatewayApiKey }))
 
 import { createTurnRunner, type ImTurnRunner } from '../turnRunner';
 import { DchatIM } from '@cindy/im';
+import { createDchatExecutionObserver } from '../../dchat/executionObserver';
 import type { IMHost } from '@cindy/im';
 import { createDchatChannelAdapter } from '../../dchat/channelAdapter';
 import { runAssistantReplyHook } from '../../../cindy-brain/assistantReplyHook';
@@ -337,6 +338,53 @@ describe('turnRunner: connection handed to a companion bot', () => {
 
   // Synthetic transport + production channel policy + shared runner + fake Maker.
   // The real Session.send boundary is observed; no provider or real partner data is used.
+
+  // Unit regression: a confirmed host continuation must drain both the durable
+  // facade lane and the production shared runner, without exporting old text.
+  it('settles the exact shared runner input after verified host continuation and runs the queued input', async () => {
+    let stored: unknown = null, dispatched: Promise<void> | undefined;
+    const sends: Array<{ text: string }> = [];
+    const host: IMHost = { secrets: { write: () => true, read: () => null, remove() {}, isAvailable: () => true },
+      ipc: { throwIpcError: () => { throw new Error('invalid'); }, handle() {}, broadcast() {} },
+      paths: { feishuMediaDir: 'unused' }, httpPostForm: async () => ({ status: 500, body: null }) };
+    const im = new DchatIM(host, { config: { accountId: 'self', ownerId: OWNER, botId: 'bot-mimi', connectionId: BOT_CONTEXT,
+      chats: [{ id: 'dm', kind: 'owner-dm', peerId: OWNER }], executeChatIds: ['dm'], replyMode: 'automatic' },
+      storage: { read: () => stored, write: value => { stored = structuredClone(value); } },
+      native: { identity: async () => ({ accountId: 'self' }), capabilities: async () => ['content'],
+        send: async value => { sends.push(value); return { messageId: 'synthetic' }; } },
+      bindingAvailable: async () => true, draft: async () => {}, executionBound: receipt => observer.observe(receipt),
+      recoverySettled: receipt => {
+        const e = receipt.execution!;
+        expect(dchatRunner.settleObservedTurn({ sessionId: e.sessionId, instanceId: e.instanceId!, turnGeneration: e.turnGeneration!,
+          inputMessageId: 'unrelated', terminal: 'done' })).toBe(false);
+        expect(dchatRunner.settleObservedTurn({ sessionId: e.sessionId, instanceId: e.instanceId!, turnGeneration: e.turnGeneration!,
+          inputMessageId: receipt.requestKey, terminal: receipt.nativeTerminal! })).toBe(true);
+      } });
+    const dchatRunner = createTurnRunner(createDchatChannelAdapter(im, fakeAdapter.config), fakeRepo, fakeCards, { companion });
+    const observer = createDchatExecutionObserver({ im, current: () => true,
+      session: id => harnesses.get(id)?.session, onSession: () => () => {}, onError: vi.fn() });
+    im.onMessage(event => { dispatched = dchatRunner.runAgentTurn({ botContextId: BOT_CONTEXT, userId: event.senderId,
+      userMessageId: event.messageId, text: event.text, attachments: [], requesterIsOwner: event.speaker?.isOwner }); });
+    const input = { messageId: 'original', accountId: 'self', chatId: 'dm', senderId: OWNER, senderName: 'Synthetic', text: 'first', sentBySelf: false, invoked: true };
+    await im.init();
+    try {
+      await im.receive(input); await dispatched;
+      const h = harnesses.get('mimi-main')!, original = im.executionInputs()[0]!;
+      h.emit({ type: 'text', data: { text: 'old partial output', isFinal: true }, sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 1 } as AgentEvent);
+      h.emit({ type: 'done', data: { silentStop: true }, sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 1 } as AgentEvent);
+      await im.receive({ ...input, messageId: 'queued', text: 'second' }); expect(im.queuedInputs()).toHaveLength(1);
+      vi.spyOn(h.session, 'getTurnGeneration').mockReturnValue(2);
+      const recovered = { sessionId: h.session.id, clientId: 'continued', instanceId: h.session.instanceId, turnGeneration: 2 };
+      await observer.takeover(original.execution!.clientId, recovered);
+      h.emit({ type: 'done', data: {}, sessionInstanceId: h.session.instanceId, sessionTurnGeneration: 2 } as AgentEvent);
+      expect(sends).toEqual([]);
+      await im.confirmRecovery(recovered);
+      await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(2), { interval: 1 }); await dispatched;
+      expect(im.queuedInputs()).toEqual([]); expect(sends).toHaveLength(1);
+      expect(sends[0]!.text).not.toContain('old partial output');
+      expect(im.executionInputs().find(r => r.messageId === 'queued')?.nativeTerminal).toBeUndefined();
+    } finally { observer.stop(); await dchatRunner.disposeAllSessions(); await im.dispose(); }
+  });
   it('runs a synthetic D-Chat input through companion canonical Session.send and binds its terminal output', async () => {
     const sends: Array<{ chatId: string; text: string }> = [];
     let ledger: unknown = null;

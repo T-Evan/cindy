@@ -23,9 +23,9 @@ function fixture(overrides: Partial<DchatConfig> = {}) {
   return { im, receive, sends, events };
 }
 describe('DchatIM native orchestrator facade', () => {
-  it('emits trusted speaker metadata, acknowledges persistence and returns final output to its lane', async () => {
+  it('keeps external speaker guest metadata, acknowledges persistence and returns final output to its lane', async () => {
     const f = fixture(); await f.im.init(); await f.receive();
-    const event = f.events[0]!; expect(event.speaker).toMatchObject({ id: 'owner', isOwner: true });
+    const event = f.events[0]!; expect(event.speaker).toMatchObject({ id: 'owner', isOwner: false });
     expect(event.chatId).toBe('dm'); f.im.acknowledgeIncoming(event.messageId);
     await f.im.commitFinal({ userId: event.senderId, inputMessageId: event.messageId, text: 'synthetic result', terminal: 'done' });
     expect(f.sends).toMatchObject([{ chatId: 'dm', text: 'synthetic result' }]); await f.im.dispose();
@@ -57,9 +57,9 @@ describe('DchatIM native orchestrator facade', () => {
     expect(f.events).toHaveLength(2); expect(f.sends).toEqual([]); await f.im.dispose();
   });
   it('delivers a verified owner stop while busy without replacing the running output anchor', async () => {
-    const f = fixture(); await f.im.init(); await f.receive('active'); await f.receive('queued');
+    const f = fixture({ ownerId: 'self', chats: [{ id: 'dm', kind: 'guest-dm', peerId: 'owner' }], controlChatId: 'dm' }); await f.im.init(); await f.receive('active'); await f.receive('queued');
     const active = f.events[0]!; f.im.acknowledgeIncoming(active.messageId);
-    await f.im.receive({ messageId: 'stop', accountId: 'self', chatId: 'dm', senderId: 'owner', senderName: 'Synthetic owner', text: '/stop', sentBySelf: false, invoked: true });
+    await f.im.receive({ messageId: 'stop', accountId: 'self', chatId: 'dm', senderId: 'self', senderName: 'Synthetic owner', text: '/cindy bot /stop', sentBySelf: true, invoked: true });
     expect(f.events.map(e => e.text)).toEqual(['synthetic', '/stop']); expect(f.im.queuedInputs()).toEqual([]);
     await f.im.commitFinal({ userId: active.senderId, inputMessageId: active.messageId, text: '', terminal: 'aborted' });
     expect(f.sends).toEqual([]); await f.im.dispose();

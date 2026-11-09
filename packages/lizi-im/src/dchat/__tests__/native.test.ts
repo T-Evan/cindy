@@ -1,3 +1,4 @@
+import { decodeDchatMembers } from '../reader';
 import { describe, expect, it } from 'vitest';
 import { DchatMacNative } from '../native';
 import type { callDchatIpc } from '../ipc';
@@ -79,4 +80,15 @@ describe('D-Chat production native boundaries', () => {
     expect(dchatKeyCandidates(binary)).toEqual([candidate]);
     expect(() => dchatKeyCandidates(Buffer.alloc(8))).toThrow('DCHAT_LOCAL_READ_UNAVAILABLE');
   });
+});
+
+// Unit: CLI static schema advertises members but does not promise complete JSON.
+// Unknown/partial responses must not turn a cached roster into execution authority.
+it('refuses unproved or paginated member directories', () => {
+  const data = { vchannel_id: '303', has_more: false, member_count: 2, members: [{ id: '101' }, { id: '202' }] };
+  expect(decodeDchatMembers(data, '303')).toEqual(['101', '202']);
+  for (const invalid of [{ ...data, has_more: true }, { ...data, has_more: undefined }, { ...data, member_count: 3 },
+    { ...data, vchannel_id: '404' }, { ...data, members: [{ id: '101' }, { id: '101' }] }]) {
+    expect(() => decodeDchatMembers(invalid, '303')).toThrow('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
+  }
 });

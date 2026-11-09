@@ -135,8 +135,18 @@ export function createAuthService(): AuthService {
         initializeTask = (async () => {
           const raw = await window.electronAPI.authInitialize();
           if (version !== startVersion && snapshot) {
-            log.info('discarded stale initialize response');
-            return snapshot;
+            // Main's cold-start recovery may push the pending fence and then
+            // return the committed state without another push. Only a strictly
+            // newer Main generation can supersede that fence; equal/older
+            // responses must never clear an in-flight owner change.
+            const completesPendingBoundary = snapshot.ownerBoundaryPending === true
+              && raw.ownerBoundaryPending !== true
+              && Number.isSafeInteger(raw.ownerGeneration)
+              && raw.ownerGeneration > snapshot.ownerGeneration;
+            if (!completesPendingBoundary) {
+              log.info('discarded stale initialize response');
+              return snapshot;
+            }
           }
           log.info('initialize returned', { elapsedMs: Math.round(performance.now() - startedAt) });
           return accept(raw, 'initialize');

@@ -195,6 +195,13 @@ export function identifyDesktopProcesses(processes, worktrees) {
   const result = [];
   for (const worktree of worktrees) {
     const electronRoot = path.join(worktree.rootDir, 'node_modules', 'electron');
+    // pnpm launches the desktop dependency's realpath, which can differ from
+    // the root Electron package. Accept it only with a renderer in this checkout.
+    let desktopElectronRoot = null;
+    try {
+      desktopElectronRoot = fs.realpathSync(path.join(worktree.rootDir, 'apps', 'desktop', 'node_modules', 'electron'));
+    } catch { /* Dependencies may not be installed in another worktree. */ }
+
     const native = readJson(path.join(worktree.rootDir, 'apps/desktop/resources/personal-native.json'));
     const sharedExecutable = typeof native?.runtime?.directory === 'string'
       ? path.join(native.runtime.directory, 'Cindy.app/Contents/MacOS/Electron') : null;
@@ -203,8 +210,10 @@ export function identifyDesktopProcesses(processes, worktrees) {
       const installed = fixedMatch ? readJson(fixedMatch[1] + '.personal-install.json') : null;
       const fixedRuntime = installed && typeof installed.key === 'string' && installed.key === native?.runtime?.key
         && installed.digest === native?.runtime?.digest;
+      const rootRuntimeMatch = commandContainsPath(proc.command, electronRoot);
+      const desktopBinaryMatch = desktopElectronRoot && commandContainsPath(proc.command, desktopElectronRoot);
       if (
-        !(commandContainsPath(proc.command, electronRoot) || sharedExecutable &&
+        !(rootRuntimeMatch || desktopBinaryMatch || sharedExecutable &&
           (proc.command.startsWith(sharedExecutable + ' ') || fixedRuntime) &&
           commandContainsPath(proc.command, path.join(worktree.rootDir, 'apps/desktop'))) ||
         proc.command.includes('--type=') ||
@@ -216,6 +225,7 @@ export function identifyDesktopProcesses(processes, worktrees) {
         child.command.includes('--type=renderer') &&
         normalize(extractArgumentPath(child.command, 'app-path') ?? path.sep) ===
           normalize(path.join(worktree.rootDir, 'apps', 'desktop')));
+      if (desktopBinaryMatch && !rootRuntimeMatch && !renderer) continue;
       const userDataDir = children
         .map((child) => extractArgumentPath(child.command, 'user-data-dir'))
         .find(Boolean) ?? null;

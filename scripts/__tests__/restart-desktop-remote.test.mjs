@@ -1884,3 +1884,27 @@ test("remote readiness allows a bounded explicit wait without accepting invalid 
     assert.throws(() => resolveDesktopStartupTimeoutMs({ XDT_DESKTOP_STARTUP_TIMEOUT_MS: value }), /must be an integer/);
   }
 });
+
+// Production identifyDesktopProcesses: pnpm runs the app-local Electron realpath,
+// not the unrelated root dependency. Existing tests only use node_modules/electron.
+// Minimal regression: app-local symlink -> .pnpm binary + renderer with app-path.
+// Unit tier; temporary directory only, no process/network. A sibling must stay unready.
+test('whoami recognizes pnpm app-local Electron without claiming a sibling checkout', () => {
+ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whoami-pnpm-'));
+ try {
+  const root = path.join(dir, 'checkout');
+  const sibling = path.join(dir, 'sibling');
+  const runtime = path.join(root, 'node_modules', '.pnpm', 'electron@42', 'node_modules', 'electron');
+  fs.mkdirSync(runtime, {recursive:true});
+  for (const checkout of [root,sibling]) {
+   const deps = path.join(checkout,'apps','desktop','node_modules');
+   fs.mkdirSync(deps,{recursive:true});
+   fs.symlinkSync(runtime,path.join(deps,'electron'),process.platform === 'win32' ? 'junction' : 'dir');
+  }
+  const binary = path.join(runtime, 'dist', 'electron');
+  const processes = [{pid:11,ppid:1,command:binary+' .'},
+   {pid:12,ppid:11,command:binary+' --type=renderer --app-path='+path.join(root,'apps','desktop')+' --no-sandbox --user-data-dir='+path.join(dir,'sandbox')}];
+  const found=identifyDesktopProcesses(processes,[{rootDir:root},{rootDir:sibling}]);
+  assert.deepEqual(found.map(i=>[i.pid,i.rootDir,i.ready]),[[11,root,true]]);
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});

@@ -99,6 +99,25 @@ describe('renderer auth service', () => {
     expect(service.getSnapshot()).toEqual(local);
   });
 
+  // Production createAuthService; unit tier. Cold-start local recovery pushes a
+  // pending generation 0 then returns committed generation 1 without another push.
+  // Existing tests only cover a stale response after a stable push. The UI must
+  // accept that later Main commit, while equal/older responses cannot clear a fence.
+  it.each([0, 1, 2])('orders a pending push against returned generation %i', async (returnedGeneration) => {
+    const service = createAuthService();
+    const pending = service.initialize();
+    const listener = vi.fn();
+    service.onAuthStateChange(listener);
+    const fence = { ...signedOut, ownerGeneration: 1, ownerBoundaryPending: true };
+    const response = { ...local, ownerGeneration: returnedGeneration };
+    push(fence);
+    resolve(response);
+    const expected = returnedGeneration > fence.ownerGeneration ? response : fence;
+    await expect(pending).resolves.toEqual(expected);
+    expect(service.getSnapshot()).toEqual(expected);
+    expect(listener.mock.lastCall?.[0]).toEqual(expected);
+  });
+
   it('only removes the departing observer; renderer disposal releases IPC and the cache', () => {
     const service = createAuthService();
     const first = vi.fn();

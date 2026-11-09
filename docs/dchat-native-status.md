@@ -42,10 +42,12 @@ DchatIM -> createDchatChannelAdapter -> 既有 shared runner。主人私聊使�
 
 真实加密合成库验证脚本为 scripts/verify-dchat-sqlcipher.mjs。使用本机 SQLCipher 4：设置 DCHAT_TEST_SQLCIPHER 为绝对可执行文件路径，以 pnpm exec tsx scripts/verify-dchat-sqlcipher.mjs 运行。它创建并清理一次性临时库，核验解密、schema、连续分页、exact queued lookup、拒绝 CREATE、只读前后 digest 不变、缺序号及账号切换拒绝。该 integration 不是 Mac 实库测试。
 
-完整 --mock 窗口此前失败。恢复诊断捕获 renderer 多个模块 net::ERR_INSUFFICIENT_RESOURCES 和入口动态导入失败；只提高本任务测试子进程 nofile（1024 -> 65536）后，这批错误消失，但仍需根据后续原始 verdict 判定启动，不能以创建窗口或 packaged 空库 smoke 代替 UI。最终记录、基线对比、类型检查和 Linux 产物对应源码以本轮交付报告为准。
+完整 --mock 窗口已在隔离 Linux 开发环境实际进入主界面，启动包装返回 DESKTOP_DEV_VERDICT=ready，whoami 源码归属匹配，LocalDbGate ready，写入 23 条演示任务，截图可见完整主界面。此证据只覆盖免登录模拟界面，不代表 D-Chat、真实模型或原伙伴能力验收。
+
+保留修复前的失败：renderer 曾因本任务子进程 nofile=1024 报 net::ERR_INSUFFICIENT_RESOURCES；仅提高测试子进程到 65536 后消除。随后上游基线和开发分支都未进入主界面。定位并修复两项共享启动问题：whoami 未识别 pnpm app-local Electron 实际路径；auth-service 收到切换中推送后丢弃 Main 返回的更高代次稳定状态。修复仍拒绝旧/同代次响应，并要求 renderer app-path 证明 checkout 归属。原始失败、先红后绿用例、真实窗口与源码 dirty 状态在阶段证据包中保留。类型检查和 Linux 产物对应源码以本轮交付报告为准。
 
 ## 来源与未完成项
 
 公开基线 6ef269cd62682236e7e4128c5802572023502285，Apache-2.0，与调查时安装版提交不同。QChat 0.4.6 ecc20858bcac488ec030f30f4722139f69b8ec61 仅用于协议事实参考；未复制许可未明源代码、Agent 引擎、依赖、运行数据或凭证。
 
-仍需完成：可启用的设置向导与可信主人核验、完整群上下文/成员目录、长任务持久通知恢复、跨模块防外传验收、完整 mock UI 和原伙伴真实能力验收、Mac 构建与实际本地收发验收。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
+仍需完成：可启用的设置向导与可信主人核验、完整群上下文/成员目录、长任务持久通知恢复、跨模块防外传验收和原伙伴真实能力验收、Mac 构建与实际本地收发验收。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。

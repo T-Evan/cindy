@@ -11674,7 +11674,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "Connecté",
@@ -11856,6 +11857,10 @@
         "failed": "Impossible de lire ou d’enregistrer le brouillon de liaison",
         "platform-unsupported": "L’accès natif à D-Chat nécessite macOS. Vous pouvez enregistrer un brouillon ici.",
         "reader-unavailable": "La lecture native des messages n’est pas connectée. Enregistrer un brouillon n’active pas l’exécution.",
+        "configure": "Configurer D-Chat",
+        "accountHint": "Utilisez le compte personnel connecté à D-Chat sur ce Mac. Aucun compte de bot nécessaire.",
+        "remoteUnavailable": "Ce partenaire s’exécute dans une autre instance de Cindy. D-Chat prend uniquement en charge les partenaires de cette instance ; la préversion ne peut pas connecter un partenaire de l’application installée.",
+        "clientUnavailable": "Ce client ne dispose pas de l’interface de configuration de D-Chat.",
         "setupSummary": "Connectez ce partenaire à D-Chat sur ce Mac. Les réponses et les autorisations restent dans Cindy.",
         "unsupported": "L’accès local à D-Chat nécessite macOS.",
         "unconfigured": "Choisissez les outils de lecture locaux et une conversation.",

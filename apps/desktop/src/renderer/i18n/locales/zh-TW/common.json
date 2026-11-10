@@ -11532,7 +11532,8 @@
         "wecom": "企業微信",
         "dingtalk": "釘釘",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "已連線",
@@ -11712,6 +11713,10 @@
         "failed": "無法讀取或儲存綁定草稿",
         "platform-unsupported": "原生 D-Chat 存取需要 macOS。目前可儲存綁定草稿。",
         "reader-unavailable": "原生訊息讀取尚未連接，儲存草稿不會啟用執行。",
+        "configure": "設定 D-Chat",
+        "accountHint": "使用本機 D-Chat 目前登入的個人帳號；無需建立機器人。",
+        "remoteUnavailable": "此夥伴由其他 Cindy 實例執行。目前 D-Chat 僅支援本實例的夥伴，無法從預覽版連接正式版夥伴。",
+        "clientUnavailable": "目前用戶端缺少 D-Chat 設定介面，無法設定此連線。",
         "setupSummary": "在這台 Mac 上連接此夥伴與 D-Chat。回覆留在 Cindy，權限確認在 Cindy 處理。",
         "unsupported": "D-Chat 本機連接需要 macOS",
         "unconfigured": "選擇本機讀取工具和對話以開始連接",

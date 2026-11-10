@@ -11577,7 +11577,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "Connected",
@@ -11758,6 +11759,10 @@
         "failed": "Could not read or save the binding draft",
         "platform-unsupported": "Native D-Chat access requires macOS. Drafts can be saved here.",
         "reader-unavailable": "Native message reading is not connected. Saving a draft does not enable execution.",
+        "configure": "Configure D-Chat",
+        "accountHint": "Use the personal account currently signed in to D-Chat on this Mac. No bot account is needed.",
+        "remoteUnavailable": "This teammate runs in another Cindy instance. D-Chat currently supports teammates in this instance only; the preview cannot connect a teammate running in the installed app.",
+        "clientUnavailable": "This client has no D-Chat setup interface and cannot configure this connection.",
         "setupSummary": "Connect this teammate to D-Chat on this Mac. Replies stay in Cindy; approvals are handled in Cindy.",
         "unsupported": "Native D-Chat access requires macOS.",
         "unconfigured": "Choose local readers and a conversation to begin.",

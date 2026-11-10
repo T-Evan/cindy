@@ -11532,7 +11532,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "接続済み",
@@ -11712,6 +11713,10 @@
         "failed": "接続設定の下書きを読み取るか保存できませんでした",
         "platform-unsupported": "D-Chat へのネイティブ接続には macOS が必要です。ここでは下書きを保存できます。",
         "reader-unavailable": "ネイティブのメッセージ読み取りは未接続です。下書きを保存しても実行は有効になりません。",
+        "configure": "D-Chat を設定",
+        "accountHint": "この Mac の D-Chat にログイン中の個人アカウントを使います。ボットの作成は不要です。",
+        "remoteUnavailable": "このパートナーは別の Cindy インスタンスで動作しています。現在の D-Chat はこのインスタンスのパートナーのみ対応しており、プレビュー版から正式版のパートナーには接続できません。",
+        "clientUnavailable": "このクライアントには D-Chat の設定機能がないため、接続を設定できません。",
         "setupSummary": "この Mac でパートナーを D-Chat に接続します。返信と権限の確認は Cindy で行います。",
         "unsupported": "D-Chat のローカル接続には macOS が必要です",
         "unconfigured": "ローカル読み取りツールと会話を選択してください",

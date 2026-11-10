@@ -11674,7 +11674,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "Conectado",
@@ -11856,6 +11857,10 @@
         "failed": "No se pudo leer o guardar el borrador de vinculación",
         "platform-unsupported": "El acceso nativo a D-Chat requiere macOS. Aquí puedes guardar borradores.",
         "reader-unavailable": "La lectura nativa de mensajes no está conectada. Guardar un borrador no habilita la ejecución.",
+        "configure": "Configurar D-Chat",
+        "accountHint": "Usa la cuenta personal conectada a D-Chat en este Mac. No necesitas crear un bot.",
+        "remoteUnavailable": "Este compañero se ejecuta en otra instancia de Cindy. D-Chat solo admite compañeros de esta instancia; la vista previa no puede conectar un compañero de la aplicación instalada.",
+        "clientUnavailable": "Este cliente no tiene una interfaz de configuración de D-Chat.",
         "setupSummary": "Conecta este compañero con D-Chat en este Mac. Las respuestas y los permisos se gestionan en Cindy.",
         "unsupported": "El acceso local a D-Chat requiere macOS.",
         "unconfigured": "Elige las herramientas de lectura locales y una conversación.",

@@ -11577,7 +11577,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "Verbunden",
@@ -11758,6 +11759,10 @@
         "failed": "Verknüpfungsentwurf konnte nicht gelesen oder gespeichert werden",
         "platform-unsupported": "Der native D-Chat-Zugriff erfordert macOS. Entwürfe können hier gespeichert werden.",
         "reader-unavailable": "Das native Lesen von Nachrichten ist nicht verbunden. Das Speichern eines Entwurfs aktiviert keine Ausführung.",
+        "configure": "D-Chat Einrichten",
+        "accountHint": "Verwende das persönliche Konto, das auf diesem Mac bei D-Chat angemeldet ist. Ein Bot-Konto ist nicht erforderlich.",
+        "remoteUnavailable": "Dieser Partner läuft in einer anderen Cindy-Instanz. D-Chat unterstützt nur Partner dieser Instanz; die Vorschau kann keinen Partner der installierten App verbinden.",
+        "clientUnavailable": "Dieser Client hat keine D-Chat-Einrichtung.",
         "setupSummary": "Verbinde diesen Partner auf diesem Mac mit D-Chat. Antworten und Berechtigungen bleiben in Cindy.",
         "unsupported": "Der lokale D-Chat-Zugriff erfordert macOS.",
         "unconfigured": "Wähle lokale Lesewerkzeuge und eine Unterhaltung.",

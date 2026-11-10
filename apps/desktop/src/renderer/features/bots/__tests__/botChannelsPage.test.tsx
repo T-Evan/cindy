@@ -110,6 +110,41 @@ async function expandTaskList() {
 }
 
 describe('BotChannelsPage', () => {
+  // Production entry: BotChannelsPage → Add Platform. D-Chat was missing here;
+  // existing tests exercised only standard bot channels. Minimal input: an empty
+  // connection list plus a local/absent/remote setup bridge (unit tier).
+  // Opening setup must not save/enable/adopt, especially for another instance.
+  it('opens the local D-Chat setup from Add Platform without connecting or adopting a bot', async () => {
+    const api = installApi({ connections: [] });
+    const setup = { get: vi.fn(async () => ({ platformSupported: false, status: 'unconfigured' })),
+      save: vi.fn(), enable: vi.fn(), disable: vi.fn() };
+    Object.assign(window.electronAPI, { dchatConnection: {}, dchatSetup: setup });
+    render(<BotChannelsPage bot={mia} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'bots.channels.add.button' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'bots.channels.platform.dchat' }));
+    expect(within(dialog).queryByLabelText('bots.channels.add.telegram.tokenLabel')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'bots.channels.dchat.configure' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await screen.findByRole('region', { name: 'D-Chat' })).toBeTruthy();
+    await waitFor(() => expect(setup.get).toHaveBeenCalledWith(mia.id));
+    expect(setup.save).not.toHaveBeenCalled();
+    expect(setup.enable).not.toHaveBeenCalled();
+    expect(api.add).not.toHaveBeenCalled();
+  });
+
+  it('shows D-Chat without a setup bridge but does not submit another platform', async () => {
+    const api = installApi({ connections: [] });
+    render(<BotChannelsPage bot={mia} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'bots.channels.add.button' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'bots.channels.platform.dchat' }));
+    expect(within(dialog).getByText('bots.channels.dchat.clientUnavailable')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'bots.channels.dchat.configure' })).toHaveProperty('disabled', true);
+    fireEvent.submit(dialog.querySelector('form')!);
+    expect(api.add).not.toHaveBeenCalled();
+  });
+
   // 用户确认的飞书任务折叠合同；既有测试只覆盖打开与重启。
   // 最小输入：一条连接和一条专线。unit：真实组件点击后列表隐藏，展开保留原记录，无业务写入。
   it('starts collapsed, expands and restores only this connection task list without changing sessions', async () => {
@@ -620,6 +655,29 @@ describe('BotChannelsPage for a teammate on another computer', () => {
     adopt: vi.fn(),
     onChanged: vi.fn(() => () => undefined),
     ...extra,
+  });
+
+
+  it.each(['Studio', undefined])('shows the D-Chat remote boundary without calling the local bridge (device=%s)', async (deviceName) => {
+    const own = installApi({ connections: [] });
+    const setup = { get: vi.fn(), save: vi.fn(), enable: vi.fn() };
+    Object.assign(window.electronAPI, { dchatConnection: {}, dchatSetup: setup });
+    const api = remoteApi();
+    const target = { ...localBotSettingsTarget, kind: 'remote', deviceId: 'mac', deviceName,
+      channels: { im: api, canEnterCredentials: false, wechat: null, x: null } } as unknown as BotSettingsTarget;
+    render(<BotSettingsTargetContext.Provider value={target}><BotChannelsPage bot={mia} /></BotSettingsTargetContext.Provider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'bots.channels.add.button' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'bots.channels.platform.dchat' }));
+    expect(within(dialog).getByText('bots.channels.dchat.remoteUnavailable')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'bots.channels.dchat.configure' })).toHaveProperty('disabled', true);
+    fireEvent.submit(dialog.querySelector('form')!);
+    expect(setup.get).not.toHaveBeenCalled();
+    expect(setup.save).not.toHaveBeenCalled();
+    expect(setup.enable).not.toHaveBeenCalled();
+    expect(api.add).not.toHaveBeenCalled();
+    expect(api.adopt).not.toHaveBeenCalled();
+    expect(own.add).not.toHaveBeenCalled();
   });
 
   it('lists and removes connections through the other computer, never this window', async () => {

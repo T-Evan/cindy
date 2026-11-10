@@ -11532,7 +11532,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "연결됨",
@@ -11712,6 +11713,10 @@
         "failed": "연결 설정 초안을 읽거나 저장하지 못했습니다",
         "platform-unsupported": "D-Chat 기본 연결에는 macOS가 필요합니다. 여기서는 초안을 저장할 수 있습니다.",
         "reader-unavailable": "기본 메시지 읽기가 아직 연결되지 않았습니다. 초안을 저장해도 실행이 활성화되지 않습니다.",
+        "configure": "D-Chat 설정",
+        "accountHint": "이 Mac의 D-Chat에 현재 로그인한 개인 계정을 사용합니다. 봇 계정은 필요하지 않습니다.",
+        "remoteUnavailable": "이 파트너는 다른 Cindy 인스턴스에서 실행 중입니다. 현재 D-Chat은 이 인스턴스의 파트너만 지원하므로 미리보기에서 정식 앱의 파트너에 연결할 수 없습니다.",
+        "clientUnavailable": "이 클라이언트에는 D-Chat 설정 인터페이스가 없어 연결을 설정할 수 없습니다.",
         "setupSummary": "이 Mac에서 파트너를 D-Chat에 연결합니다. 답변과 권한 확인은 Cindy에서 처리합니다.",
         "unsupported": "D-Chat 로컬 연결에는 macOS가 필요합니다",
         "unconfigured": "로컬 읽기 도구와 대화를 선택하세요",

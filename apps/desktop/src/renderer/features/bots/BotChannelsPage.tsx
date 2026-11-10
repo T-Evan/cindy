@@ -84,8 +84,8 @@ const CHANNEL_ICON: Record<BotImChannel, LucideIcon> = {
   imessage: MessageSquare,
 };
 
-function ChannelIcon({ channel }: { channel: BotImChannel }) {
-  const Icon = CHANNEL_ICON[channel] ?? MessageSquare;
+function ChannelIcon({ channel }: { channel: BotImChannel | 'dchat' }) {
+  const Icon = channel === 'dchat' ? MessageSquare : CHANNEL_ICON[channel] ?? MessageSquare;
   return <Icon size={18} aria-hidden className="shrink-0 text-[var(--text-secondary)]" />;
 }
 
@@ -283,7 +283,11 @@ export function BotChannelsPage({ bot }: { bot: BotProfile }) {
         {t('bots.channels.sharedMemoryNote', { name: bot.name })}
       </p>
       {adding ? (
-        <BotChannelAddDialog bot={bot} api={im} remoteName={target.channels.canEnterCredentials ? undefined : target.deviceName} onApplied={apply} onOpenChange={setAdding} />
+        <BotChannelAddDialog bot={bot} api={im} remoteName={target.channels.canEnterCredentials ? undefined : target.deviceName}
+          dchatRemote={target.kind === 'remote'}
+          onConfigureDchat={target.kind === 'local' && window.electronAPI?.dchatSetup && window.electronAPI?.dchatConnection
+            ? () => { setAdding(false); setDchatExpanded(true); } : undefined}
+          onApplied={apply} onOpenChange={setAdding} />
       ) : null}
     </section>
   );
@@ -654,7 +658,7 @@ function ConnectionLanes({ api, connectionId, botName, platform, deviceId }: {
   );
 }
 
-const PLATFORMS: ReadonlyArray<BotImChannel> = ['telegram', 'feishu', 'wecom', 'dingtalk', 'discord', 'imessage'];
+const PLATFORMS: ReadonlyArray<BotImChannel | 'dchat'> = ['telegram', 'feishu', 'wecom', 'dingtalk', 'discord', 'imessage', 'dchat'];
 
 /** 个人 bot 给人看的身份: Telegram @用户名 / Discord 标签原样, 其它平台的 id 打码。 */
 function adoptableIdentity(item: BotImAdoptablePersonalBot): string | undefined {
@@ -707,6 +711,8 @@ function BotChannelAddDialog({
   bot,
   api,
   remoteName,
+  dchatRemote,
+  onConfigureDchat,
   onApplied,
   onOpenChange,
 }: {
@@ -714,11 +720,13 @@ function BotChannelAddDialog({
   api: BotImConnectionApi | null;
   /** Set for a teammate on another computer: credentials are typed and stored on that computer only. */
   remoteName?: string;
+  dchatRemote: boolean;
+  onConfigureDchat?: () => void;
   onApplied: (next: BotImConnectionListPayload) => void;
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useBotTranslation();
-  const [channel, setChannel] = useState<BotImChannel>('telegram');
+  const [channel, setChannel] = useState<BotImChannel | 'dchat'>('telegram');
   const [token, setToken] = useState('');
   const [ownerUserId, setOwnerUserId] = useState('');
   const [service, setService] = useState<BotImFeishuService>('feishu');
@@ -762,7 +770,9 @@ function BotChannelAddDialog({
   }, [channel]);
 
   const filled = (...values: string[]) => values.every((value) => value.trim().length > 0);
-  const canSubmit = useExisting
+  const canSubmit = channel === 'dchat'
+    ? !dchatRemote && onConfigureDchat !== undefined
+    : useExisting
     ? true
     : !credentialsHere
       ? false
@@ -780,6 +790,7 @@ function BotChannelAddDialog({
 
   const buildInput = (): BotImConnectionAddInput | string => {
     switch (channel) {
+      case 'dchat': return t('bots.channels.dchat.clientUnavailable');
       case 'imessage': return { botId: bot.id, channel, ...imessage, groupAliases: [bot.name],
         chatGuids: imessage.chatGuids.split(/[,\n]/).map(value => value.trim()).filter(Boolean),
         listenPort: Number(imessage.listenPort) };
@@ -821,6 +832,10 @@ function BotChannelAddDialog({
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!canSubmit || busyRef.current) return;
+    if (channel === 'dchat') {
+      if (!dchatRemote) onConfigureDchat?.();
+      return;
+    }
     const input = useExisting ? null : buildInput();
     if (typeof input === 'string') {
       setError(input);
@@ -878,7 +893,9 @@ function BotChannelAddDialog({
               {t('bots.channels.add.title', { name: bot.name })}
             </Dialog.Title>
             <Dialog.Description className="mt-2 text-13 leading-[1.5] text-[var(--confirm-desc)]">
-              {manualFeishu
+              {channel === 'dchat'
+                ? t('bots.channels.dchat.accountHint')
+                : manualFeishu
                 ? t('bots.channels.add.feishu.description', { service: serviceName, name: bot.name })
                 : t('bots.channels.add.description')}
             </Dialog.Description>
@@ -940,7 +957,13 @@ function BotChannelAddDialog({
                   ) : null}
                 </div>
               ) : null}
-              {useExisting ? (
+              {channel === 'dchat' ? (
+                <div className="flex flex-col gap-3 text-12 leading-[1.5] text-[var(--text-secondary)]">
+                  {dchatRemote
+                    ? <p role="status">{t('bots.channels.dchat.remoteUnavailable')}</p>
+                    : <p>{t(onConfigureDchat ? 'bots.channels.dchat.setupSummary' : 'bots.channels.dchat.clientUnavailable')}</p>}
+                </div>
+              ) : useExisting ? (
                 <p className="px-1 text-12 leading-[1.5] text-[var(--text-secondary)]">
                   {t('bots.channels.add.source.moveNote', { name: bot.name })}
                 </p>
@@ -1214,6 +1237,8 @@ function BotChannelAddDialog({
               >
                 {busy
                   ? t('bots.channels.add.connecting')
+                  : channel === 'dchat'
+                    ? t('bots.channels.dchat.configure')
                   : manualFeishu
                     ? t('bots.channels.add.feishu.confirm', { service: serviceName })
                     : t('bots.channels.add.confirm')}

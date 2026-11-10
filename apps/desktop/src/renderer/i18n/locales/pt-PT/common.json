@@ -11674,7 +11674,8 @@
         "wecom": "WeCom",
         "dingtalk": "DingTalk",
         "discord": "Discord",
-        "imessage": "iMessage"
+        "imessage": "iMessage",
+        "dchat": "D-Chat"
       },
       "status": {
         "connected": "Ligado",
@@ -11856,6 +11857,10 @@
         "failed": "Não foi possível ler ou guardar o rascunho de associação",
         "platform-unsupported": "O acesso nativo ao D-Chat requer macOS. Pode guardar rascunhos aqui.",
         "reader-unavailable": "A leitura nativa de mensagens não está ligada. Guardar um rascunho não ativa a execução.",
+        "configure": "Configurar D-Chat",
+        "accountHint": "Usa a conta pessoal com sessão iniciada no D-Chat neste Mac. Não é necessário criar um bot.",
+        "remoteUnavailable": "Este parceiro é executado noutra instância do Cindy. O D-Chat só suporta parceiros desta instância; a pré-visualização não pode ligar um parceiro da aplicação instalada.",
+        "clientUnavailable": "Este cliente não tem a interface de configuração do D-Chat.",
         "setupSummary": "Liga este parceiro ao D-Chat neste Mac. As respostas e permissões ficam no Cindy.",
         "unsupported": "O acesso local ao D-Chat requer macOS.",
         "unconfigured": "Escolhe as ferramentas de leitura locais e uma conversa.",

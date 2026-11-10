@@ -1,6 +1,49 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDchatSetupHandlers } from '../connectionSetup';
+import { createDchatSetupHandlers, verifyDchatSetupReaders } from '../connectionSetup';
 import type { NativeBinding } from '../nativeRuntime';
+// Save/enable's real verification body previously queried an empty parent for a
+// normal group, while handler-only mocks hid the bug. Unit: cached group with
+// parentId='', plus official gate rejection/account change before the local read.
+describe('native setup reader verification', () => {
+  function readers(kind = 'channel', parentId = '') {
+    let accountId = '101'; const order: string[] = [];
+    const identity = {
+      identity: vi.fn(async () => ({ accountId })),
+      assertHistoryAccess: vi.fn(async (chatId: string) => { expect(chatId).toBe('303'); order.push('gate'); }),
+      members: vi.fn(async (chatId: string) => {
+        if (!chatId) throw new Error('DCHAT_INVALID_MEMBERSHIP_QUERY');
+        return { accountId, chatId, memberIds: [accountId] };
+      }),
+    };
+    const reader = {
+      page: vi.fn(async () => { order.push('read'); return { accountId: '101', chatId: '303', kind, parentId, peerId: '', messages: [], cursor: null, hasMore: false, continuous: false }; }),
+      dispose: vi.fn(),
+    };
+    return { identity, reader, order, account: (id: string) => { accountId = id; } };
+  }
+  it.each([['channel', '', '303', 'group'], ['subchannel', '202', '202', 'topic']])(
+    'verifies %s membership using the correct conversation', async (kind, parentId, membershipId, chatKind) => {
+      const f = readers(kind, parentId);
+      const proof = await verifyDchatSetupReaders(f.identity, f.reader, '303');
+      expect(proof).toMatchObject({ accountId: '101', chat: { id: '303', kind: chatKind } });
+      expect(f.identity.members).toHaveBeenCalledWith(membershipId);
+      expect(f.order).toEqual(['gate', 'read']);
+      expect(f.reader.dispose).toHaveBeenCalledOnce();
+    });
+  it('does not read the local database when the official history gate refuses', async () => {
+    const f = readers(); f.identity.assertHistoryAccess.mockRejectedValue(new Error('DCHAT_READ_UNAVAILABLE'));
+    await expect(verifyDchatSetupReaders(f.identity, f.reader, '303')).rejects.toThrow('DCHAT_READ_UNAVAILABLE');
+    expect(f.reader.page).not.toHaveBeenCalled();
+    expect(f.identity.members).not.toHaveBeenCalled();
+    expect(f.reader.dispose).toHaveBeenCalledOnce();
+  });
+  it('refuses an account changed during the official gate before local reads', async () => {
+    const f = readers(); f.identity.assertHistoryAccess.mockImplementation(async () => { f.account('999'); });
+    await expect(verifyDchatSetupReaders(f.identity, f.reader, '303')).rejects.toThrow('DCHAT_ACCOUNT_CHANGED');
+    expect(f.reader.page).not.toHaveBeenCalled();
+    expect(f.reader.dispose).toHaveBeenCalledOnce();
+  });
+});
 /** Unit: setup public handlers must not promote renderer identity or enable on save.
  * Existing draft tests cannot exercise local verification/activation. Minimal failures:
  * renderer ownerId injection, identity changed between save/enable, scope changed during

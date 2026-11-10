@@ -1,11 +1,35 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { DchatChat } from '@cindy/im';
+import type { DchatChat, DchatCliReader, DchatSqlcipherReader } from '@cindy/im';
 import type { DchatSetupPath, DchatSetupView } from '../../../shared/dchatConnection';
 import type { NativeBinding } from './nativeRuntime';
 
 const fields: DchatSetupPath[] = ['identityExecutable', 'sqlcipherExecutable', 'component', 'databaseRoot'];
 const validBot = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(id) && !['__proto__', 'constructor', 'prototype'].includes(id);
 type Paths = Pick<NativeBinding, DchatSetupPath>;
+/** Shared by save and enable: honor the official history gate before local reads. */
+export async function verifyDchatSetupReaders(
+  identity: Pick<DchatCliReader, 'identity' | 'members' | 'assertHistoryAccess'>,
+  reader: Pick<DchatSqlcipherReader, 'page' | 'dispose'>,
+  chatId: string,
+): Promise<{ accountId: string; chat: DchatChat }> {
+  try {
+    const before = await identity.identity();
+    await identity.assertHistoryAccess(chatId);
+    if ((await identity.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
+    const page = await reader.page(chatId);
+    if (page.accountId !== before.accountId || (await identity.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
+    const kind = page.kind === 'subchannel' ? 'topic' : ['channel', 'extchannel'].includes(page.kind) ? 'group'
+      : page.peerId === before.accountId ? 'owner-dm' : 'guest-dm';
+    if (kind === 'group' || kind === 'topic') {
+      const members = await identity.members(kind === 'topic' ? page.parentId : chatId);
+      if (members.accountId !== before.accountId || !members.memberIds.includes(before.accountId)) throw new Error('DCHAT_MEMBERSHIP_UNAVAILABLE');
+    }
+    if ((await identity.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
+    return { accountId: before.accountId, chat: { id: chatId, kind,
+      ...(['owner-dm', 'guest-dm'].includes(kind) ? { peerId: page.peerId } : {}),
+      ...(kind === 'topic' ? { parentId: page.parentId } : {}) } as DchatChat };
+  } finally { reader.dispose(); }
+}
 export interface DchatSetupDeps {
   scope(): string | null; platform: string;
   read(): NativeBinding[];

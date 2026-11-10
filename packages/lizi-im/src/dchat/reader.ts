@@ -3,7 +3,7 @@ import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
 /** D-Chat's installed native CLI is an optional read adapter, never a QChat runtime.
- * Paths are selected by the owner; no download/updater/wrapper is executed here. */
+ * Paths are selected or discovered by Main. Only read operations are exposed. */
 export class DchatCliReader {
   constructor(private readonly executable: string) {}
   private async read(args: string[]): Promise<Record<string, unknown>> {
@@ -13,7 +13,10 @@ export class DchatCliReader {
     if (!info.isFile() || (info.mode & 0o022) !== 0 || (info.uid !== 0 && info.uid !== process.getuid?.())) throw new Error('DCHAT_READER_INVALID');
     const result = await new Promise<string>((resolve, reject) => {
       // Minimal environment; never forward model/provider authentication to the reader.
-      execFile(this.executable, ['--output', 'json', ...args], { timeout: 15_000, maxBuffer: 4_000_000,
+      // The official installed Unix wrapper is a non-executable .sh file. Invoke
+      // it through bash without shell interpolation, preserving its history gate.
+      const script = this.executable.endsWith('.sh');
+      execFile(script ? '/bin/bash' : this.executable, [...(script ? [this.executable] : []), '--output', 'json', ...args], { timeout: 15_000, maxBuffer: 4_000_000,
         env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG } },
       (error, stdout) => { if (error) reject(new Error('DCHAT_READ_FAILED')); else resolve(stdout); });
     });

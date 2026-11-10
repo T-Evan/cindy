@@ -36,6 +36,7 @@ export interface DchatSetupDeps {
   write(binding: NativeBinding, scope: string): Promise<void>;
   available(botId: string): Promise<boolean>;
   choose(field: DchatSetupPath): Promise<string | null>;
+  detect?(): Promise<Partial<Paths>>;
   verify(paths: Paths, chatId: string): Promise<{ accountId: string; chat: DchatChat }>;
   connected(connectionId: string): boolean;
   interruptedCount?(botId: string): number;
@@ -77,7 +78,14 @@ export function createDchatSetupHandlers(deps: DchatSetupDeps) {
     assert(expected); return proof;
   }
   return {
-    get: view,
+    get(botId: string) { return mutate(botId, async expected => {
+      if (deps.platform === 'darwin' && deps.detect) {
+        const detected = await deps.detect(); assert(expected);
+        // Discovery only fills missing paths. Explicit choices and saved bindings win.
+        selected.set(key(botId), { ...detected, ...binding(botId), ...selected.get(key(botId)) });
+      }
+      return view(botId);
+    }); },
     pick(botId: string, field: DchatSetupPath) { return mutate(botId, async expected => {
       if (!fields.includes(field) || deps.platform !== 'darwin') throw new Error('DCHAT_PLATFORM_UNSUPPORTED');
       const chosen = await deps.choose(field); assert(expected);

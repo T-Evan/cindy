@@ -1,6 +1,11 @@
 import { dialog, ipcMain } from 'electron';
+import { realpath } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { DchatCliReader, DchatSqlcipherReader } from '@cindy/im';
 import { createDchatSetupHandlers, verifyDchatSetupReaders } from './connectionSetup';
+import { detectDchatLocalPaths } from './localPaths';
+import { getCodexHome } from '../../maker-host/codex-home-path';
 import { readDchatNativeBindings, writeDchatNativeBinding, dchatNativeStatus, dchatInterruptedCount, reloadDchatNativeConnections } from './nativeRuntime';
 import type { DchatSetupPath } from '../../../shared/dchatConnection';
 import { eq } from 'drizzle-orm';
@@ -61,6 +66,10 @@ const setup = createDchatSetupHandlers({
   scope: currentScope, platform: process.platform,
   read: readDchatNativeBindings, write: writeDchatNativeBinding,
   connected: dchatNativeStatus, interruptedCount: dchatInterruptedCount, reload: reloadDchatNativeConnections,
+  detect: () => detectDchatLocalPaths({ home: os.homedir(), skillRoots: [
+    path.join(getCodexHome(), 'skills'), path.join(os.homedir(), '.agents/skills'),
+    path.join(os.homedir(), '.claude/skills'),
+  ] }),
   available: async botId => {
     const [row] = await getDbClient().drizzle.select({ status: botProfiles.status })
       .from(botProfiles).where(eq(botProfiles.id, botId)).limit(1);
@@ -68,7 +77,7 @@ const setup = createDchatSetupHandlers({
   },
   choose: async field => {
     const result = await dialog.showOpenDialog({ properties: field === 'databaseRoot' ? ['openDirectory'] : ['openFile'] });
-    return result.canceled ? null : result.filePaths[0] ?? null;
+    return result.canceled || !result.filePaths[0] ? null : await realpath(result.filePaths[0]);
   },
   verify: async (paths, chatId) => {
     const identity = new DchatCliReader(paths.identityExecutable);

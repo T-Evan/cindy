@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDchatSetupHandlers, verifyDchatSetupReaders } from '../connectionSetup';
+import { detectDchatLocalPaths } from '../localPaths';
 import type { NativeBinding } from '../nativeRuntime';
+import type { DchatSetupPath } from '../../../../shared/dchatConnection';
 // Save/enable's real verification body previously queried an empty parent for a
 // normal group, while handler-only mocks hid the bug. Unit: cached group with
 // parentId='', plus official gate rejection/account change before the local read.
@@ -56,6 +58,7 @@ function fixture() {
     write: vi.fn(async (binding: NativeBinding, expected: string) => { if (owner !== expected) throw new Error('stale'); bindings = [structuredClone(binding)]; }),
     available: vi.fn(async () => true), choose: vi.fn(async () => '/synthetic/selected'),
     verify: vi.fn(async (_paths: unknown, chatId: string) => ({ accountId: account, chat: { id: chatId, kind: 'group' as const } })),
+    detect: vi.fn(async (): Promise<Partial<Record<DchatSetupPath, string>>> => ({})),
     connected: () => connected, reload: vi.fn(async () => { connected = bindings[0]?.enabled === true; }) };
   const setup = createDchatSetupHandlers(deps);
   const select = async () => { for (const field of ['identityExecutable', 'sqlcipherExecutable', 'component', 'databaseRoot'] as const) await setup.pick('bot_a', field); };
@@ -80,7 +83,7 @@ describe('Main-owned D-Chat setup', () => {
   it('rejects a stale native dialog and an unavailable original teammate', async () => {
     const f = fixture(); f.deps.choose.mockImplementation(async () => { f.owner('other:2'); return '/synthetic/stale'; });
     await expect(f.setup.pick('bot_a', 'component')).rejects.toThrow('DCHAT_ACCOUNT_CHANGED');
-    expect(f.setup.get('bot_a').selected).toEqual([]);
+    expect((await f.setup.get('bot_a')).selected).toEqual([]);
     f.deps.available.mockResolvedValue(false);
     await expect(f.setup.save({ botId: 'bot_a', chatId: '303', execute: false })).rejects.toThrow();
     expect(f.deps.write).not.toHaveBeenCalled();
@@ -98,4 +101,47 @@ it('stores control pairing only after Main local-account verification and remain
   const view = await f.setup.save({ botId: 'bot_a', chatId: '303', execute: true, control: true });
   expect(f.bindings()[0]?.config).toMatchObject({ ownerId: '101', accountId: '101', controlChatId: '303' });
   expect(view).toMatchObject({ control: true, enabled: false, status: 'saved' });
+});
+
+// Unit regression: finding installed paths must not require four native dialogs,
+// query an account, activate a connection, or leak a late result across owners.
+describe('D-Chat setup automatic local paths', () => {
+  const paths = { identityExecutable: '/synthetic/dws-unix.sh', sqlcipherExecutable: '/synthetic/sqlcipher',
+    component: '/synthetic/D-Chat', databaseRoot: '/synthetic/CefChat' };
+  it('discovers the installed wrapper and resolved Homebrew file, leaving absent tools unselected', async () => {
+    const found = await detectDchatLocalPaths({ home: '/synthetic/home', skillRoots: ['/synthetic/skills'] },
+      async (candidate, directory) => {
+        if (candidate === '/synthetic/skills/xdt-agents/smartwork-cli/smartwork-shared/assets/dws-unix.sh') return '/synthetic/real/dws-unix.sh';
+        if (candidate === '/opt/homebrew/bin/sqlcipher') return '/synthetic/Cellar/sqlcipher';
+        if (directory && candidate.endsWith('/CefChat')) return candidate;
+        return null;
+      });
+    expect(found).toEqual({ identityExecutable: '/synthetic/real/dws-unix.sh', sqlcipherExecutable: '/synthetic/Cellar/sqlcipher',
+      databaseRoot: '/synthetic/home/Library/Application Support/com.dichat.desktop/D-Chat/CefChat' });
+  });
+  it('makes fresh setup saveable without four dialogs and keeps detection read-only', async () => {
+    const f = fixture(); f.deps.detect.mockResolvedValue(paths);
+    const view = await f.setup.get('bot_a');
+    expect(view.selected).toHaveLength(4);
+    expect(view).toMatchObject({ accountId: null, enabled: false, status: 'unconfigured' });
+    expect(f.deps.verify).not.toHaveBeenCalled();
+    expect(f.deps.write).not.toHaveBeenCalled();
+    await f.setup.save({ botId: 'bot_a', chatId: '303', execute: false });
+    expect(f.bindings()[0]).toMatchObject({ ...paths, enabled: false });
+  });
+  it('preserves manual selections and leaves missing tools available for manual selection', async () => {
+    const f = fixture(); f.deps.detect.mockResolvedValue({ component: paths.component });
+    await f.setup.pick('bot_a', 'component');
+    expect((await f.setup.get('bot_a')).selected).toEqual(['component']);
+    f.deps.detect.mockResolvedValue(paths); await f.setup.get('bot_a');
+    await f.setup.save({ botId: 'bot_a', chatId: '303', execute: false });
+    expect(f.bindings()[0]?.component).toBe('/synthetic/selected');
+  });
+  it('rejects detection finishing after an account switch without leaking its selection', async () => {
+    const f = fixture(); f.deps.detect.mockImplementation(async () => { f.owner('other:2'); return paths; });
+    await expect(f.setup.get('bot_a')).rejects.toThrow('DCHAT_ACCOUNT_CHANGED');
+    f.deps.detect.mockResolvedValue({});
+    expect((await f.setup.get('bot_a')).selected).toEqual([]);
+    expect(f.deps.write).not.toHaveBeenCalled();
+  });
 });

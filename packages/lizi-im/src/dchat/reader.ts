@@ -40,6 +40,13 @@ export class DchatCliReader {
     if ((await this.identity()).accountId !== before.accountId) throw new Error('DCHAT_ACCOUNT_CHANGED');
     return { accountId: before.accountId, chatId, memberIds };
   }
+  /** Run the official history gate without treating its cached result as a page.
+   * Some stock versions include extra context rows despite count; none are exported. */
+  async assertHistoryAccess(chatId: string): Promise<void> {
+    if (!/^\d{1,128}$/.test(chatId)) throw new Error('DCHAT_INVALID_HISTORY_QUERY');
+    const result = await this.read(['message', 'latest', '--vid', chatId, '--count', '1']);
+    if (result.vchannel_id !== chatId || !Array.isArray(result.messages)) throw new Error('DCHAT_HISTORY_INCOMPLETE');
+  }
   /** Explicit bounded history reads only. Permission errors stay visible; no fallback to another account/source. */
   async page(chatId: string, anchor?: string): Promise<Record<string, unknown>> {
     if (!/^\d{1,128}$/.test(chatId) || (anchor !== undefined && (!anchor || anchor.length > 2048 || Array.from(anchor).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)))) throw new Error('DCHAT_INVALID_HISTORY_QUERY');
@@ -52,12 +59,16 @@ export class DchatCliReader {
   }
 }
 
-/** Deliberately strict machine contract. schema chat.members advertises the read,
- * but not its JSON shape/completeness. Unknown installed versions fail closed;
- * a real authorized Mac read must verify this contract before activation. */
+/** Stock CLI member response verified on macOS. Completeness is proved by the
+ * channel count and unique roster, not an invented pagination flag. */
 export function decodeDchatMembers(raw: Record<string, unknown>, chatId: string): string[] {
-  if (raw.vchannel_id !== chatId || raw.has_more !== false || !Array.isArray(raw.members)
-    || !Number.isSafeInteger(raw.member_count) || raw.member_count !== raw.members.length || raw.members.length > 10000) throw new Error('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
+  const detail = raw.detail as { channel?: { id?: unknown; member_count?: unknown }; vchannel?: { vchannel_id?: unknown; type?: unknown } } | undefined;
+  const count = detail?.channel?.member_count;
+  if (raw.vchannel_id !== chatId || typeof raw.channel_id !== 'string' || !/^\d{1,128}$/.test(raw.channel_id)
+    || detail?.channel?.id !== raw.channel_id || detail?.vchannel?.vchannel_id !== chatId
+    || !['channel', 'extchannel'].includes(String(detail?.vchannel?.type))
+    || ('has_more' in raw && raw.has_more !== false) || !Array.isArray(raw.members)
+    || !Number.isSafeInteger(count) || count !== raw.members.length || raw.members.length > 10000) throw new Error('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
   const ids = raw.members.map((member: unknown) => {
     const id = (member as { id?: unknown } | null)?.id;
     if (typeof id !== 'string' || !/^\d{1,128}$/.test(id)) throw new Error('DCHAT_MEMBER_SCHEMA_UNVERIFIED');

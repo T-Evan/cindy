@@ -74,7 +74,7 @@ export function dchatKeyCandidates(bytes: Buffer): string[] {
           if (p - first === 28) {
             const value = bytes.subarray(first, p).toString('latin1');
             if (/^[\x20-\x7e]{28}$/.test(value)) candidates.add(value);
-            if (candidates.size > 32) throw new Error('DCHAT_KEY_PROBE_BUDGET');
+            if (candidates.size > 4096) throw new Error('DCHAT_KEY_PROBE_BUDGET');
           }
           first = p + 1;
         }
@@ -83,7 +83,16 @@ export function dchatKeyCandidates(bytes: Buffer): string[] {
     at += size;
   }
   if (!candidates.size) throw failure();
-  return [...candidates];
+  // Static strings have a separate memory bound; only 32 ranked candidates are
+  // probed. SQLCipher schema validation, not ranking, establishes a valid key.
+  const score = (value: string): number => {
+    const frequencies = new Map<string, number>();
+    for (const char of value) frequencies.set(char, (frequencies.get(char) ?? 0) + 1);
+    let entropy = 0;
+    for (const count of frequencies.values()) { const p = count / value.length; entropy -= p * Math.log2(p); }
+    return entropy + (/\s/.test(value) ? 0 : 8) + (/[a-zA-Z]/.test(value) && /[0-9]/.test(value) ? 4 : 0);
+  };
+  return [...candidates].sort((a, b) => score(b) - score(a)).slice(0, 32);
 }
 /** Bounded SQLCipher process. The passphrase travels only on stdin; stderr is discarded
  * because SQL errors may echo it. Read-only open and query_only both remain mandatory. */
@@ -237,7 +246,7 @@ export function decodeDchatPage(raw: unknown, accountId: string, chatId: string,
       || typeof row.text !== 'string' || row.text.length > 100_000 || typeof row.previousId !== 'string') throw failure();
     seen.add(row.messageId);
     const seq = sequence(row.sequence);
-    if (previous && (BigInt(seq) !== BigInt(sequence(previous.sequence)) + 1n || row.previousId !== previous.messageId
+    if (previous && ((anchor ? BigInt(seq) !== BigInt(sequence(previous.sequence)) + 1n : BigInt(seq) < BigInt(sequence(previous.sequence))) || row.previousId !== previous.messageId
       || !/^\d+$/.test(String(row.timestamp)) || BigInt(String(row.timestamp)) < BigInt(String(previous.timestamp)))) throw new Error('DCHAT_HISTORY_GAP');
     previous = row;
     const content = typeof row.content === 'string' && row.content ? parse(row.content) as Record<string, unknown> : {};

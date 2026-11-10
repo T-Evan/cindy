@@ -16,11 +16,11 @@ config 包含 accountId、ownerId、botId、connectionId、chats。每个 chat �
 
 packages/lizi-im/src/dchat/sqlcipher.ts 是独立实现的 SQLCipher 只读 reader。仅 Mac 生产入口开启；Linux 集成测试显式注入平台并创建临时加密合成库。SQLCipher 是主人指定的本机可执行文件，不自动安装。identityExecutable 是已安装的 D-Chat CLI，使用 user info --self 读取当前账号，不运行 QChat。
 
-reader 按新鲜账号定位 1_<accountId>_db/chat39，验证路径类型/归属、schema 字段和 WAL sidecar；以 -readonly 和 query_only 打开，不复制数据库、不 checkpoint、不 migration。候选仅取 Mach-O 的 __cstring；最多 32 个、10 秒预算，密钥仅在内存及子进程 stdin，stderr 不记录。停止时释放缓存。真实 Mac 二进制、SQLCipher 分发与实际 schema 仍需平台验收。
+reader 按新鲜账号定位 1_<accountId>_db/chat39，验证路径类型/归属、schema 字段和 WAL sidecar；以 -readonly 和 query_only 打开，不复制数据库、不 checkpoint、不 migration。候选仅取 Mach-O 的 __cstring；最多 32 个、10 秒预算，密钥仅在内存及子进程 stdin，stderr 不记录。停止时释放缓存。Mac D-Chat 4.27.0 arm64 已用此新 reader 和本架构 SQLCipher 4.20.0 实库只读验证；不代表其它版本、架构或 SQLCipher 分发已验证。静态候选池最多 4096 个，在内存按字符分布排序后只探测前 32 个，仍保持 10 秒总预算；成功依据仍是账号绑定 schema 解密核验，排序不构成密钥信任。
 
-从 vchannels 核对本机账号退群/解散/移出标记、私聊 peer 与话题父群；消息 uid 必须存在于本地 users，排除 robot_id 与冲突的 content.author。群召唤只认结构化 mentions，不认正文里的 @ 字样。生产群/话题执行还通过本机 CLI 的 chat members --vid 查询实时成员，查询前后核验本机账号，并在排队输入真正派发前再次检查本机账号及发信人仍在群中。终稿及恢复通知出站前也重新确认本机账号仍在该群；退群不外传结果。话题校验父群。静态 CLI schema 已确认此命令只读、使用后端 API、不支持 --current，且只支持 channel/extchannel；但 schema 未声明 JSON 字段或完整列表/分页合同。当前严格解码器仅接受 vchannel_id、has_more=false、member_count 与去重 members[].id 相符的完整响应；这是待核验的机器合同，不能冒充已证实的真实返回形状。未知/部分返回报 DCHAT_MEMBER_SCHEMA_UNVERIFIED，保持群连接关闭。实际 Mac 授权只读样本与版本合同仍是生产群接入的阻塞。
+从 vchannels 核对本机账号退群/解散/移出标记、私聊 peer 与话题父群；消息 uid 必须存在于本地 users，排除 robot_id 与冲突的 content.author。群召唤只认结构化 mentions，不认正文里的 @ 字样。生产群/话题执行还通过本机 CLI 的 chat members --vid 查询实时成员，查询前后核验本机账号，并在排队输入真正派发前再次检查本机账号及发信人仍在群中。终稿及恢复通知出站前也重新确认本机账号仍在该群；退群不外传结果。话题校验父群。静态 CLI schema 已确认此命令只读、使用后端 API、不支持 --current，且只支持 channel/extchannel；但 schema 未声明 JSON 字段或完整列表/分页合同。已通过授权 Mac stock CLI 只读核验真实响应：data.vchannel_id、data.channel_id 与 detail.channel.id、detail.vchannel.vchannel_id 必须一致，detail.vchannel.type 仅接受 channel/extchannel；detail.channel.member_count 必须与成员数组长度及唯一数字字符串 ID 数量一致。真实响应没有 has_more，不再虚构此字段；若未来响应声明 has_more，只接受 false。未知/部分/重复/跨聊天响应仍报 DCHAT_MEMBER_SCHEMA_UNVERIFIED。该证据仅覆盖已核验版本与目标，不等同其它版本或大群分页均已验收。
 
-首次页面只建立基线，不执行历史。之后逐页（每页最多 50）从持久 anchor 继续，严格核对序号、prev_msg_key、时间单调与缓存覆盖；缺 anchor/断页即停止，不降级成“最近消息”。整数 TEXT 包括 123.0 以 BigInt 无损归一化。收集上下文与执行允许范围分开；首次页及未召唤背景消息进入现有 owner DB 的 channelGroupWindow；执行触发使用 connection/parent chat/topic 分区、持久增量游标与精确 triggerMessageId 拼装，群窗口负责围栏中和与容量限制。上下文只进入当次模型输入，同时以 captureImContext 保存同源展示快照；D-Chat 渠道说明与界面来源共享名称。它不替换落库原话，也不改变触发者权限。上下文不可用或账号/DB 在拼装期间改变时拒绝执行。群窗口本身的预算与缓存语义不等于完整服务端历史。
+首次页面只建立基线，不执行历史。实库缓存中存在重复序号但前后链接相接；基线窗口仅要求序号不倒退、链接与时间有序，不宣称连续历史。带锚点分页继续严格要求序号 +1，不允许基线例外进入自动执行路径。之后逐页（每页最多 50）从持久 anchor 继续，严格核对序号、prev_msg_key、时间单调与缓存覆盖；缺 anchor/断页即停止，不降级成“最近消息”。整数 TEXT 包括 123.0 以 BigInt 无损归一化。收集上下文与执行允许范围分开；首次页及未召唤背景消息进入现有 owner DB 的 channelGroupWindow；执行触发使用 connection/parent chat/topic 分区、持久增量游标与精确 triggerMessageId 拼装，群窗口负责围栏中和与容量限制。上下文只进入当次模型输入，同时以 captureImContext 保存同源展示快照；D-Chat 渠道说明与界面来源共享名称。它不替换落库原话，也不改变触发者权限。上下文不可用或账号/DB 在拼装期间改变时拒绝执行。群窗口本身的预算与缓存语义不等于完整服务端历史。
 
 ## 执行、恢复与输出
 
@@ -64,7 +64,7 @@ scripts/verify-dchat-manual-recovery.mjs 使用真实私有文件和独立 Node 
 
 公开基线 6ef269cd62682236e7e4128c5802572023502285，Apache-2.0，与调查时安装版提交不同。QChat 0.4.6 ecc20858bcac488ec030f30f4722139f69b8ec61 仅用于协议事实参考；未复制许可未明源代码、Agent 引擎、依赖、运行数据或凭证。
 
-仍需完成：跨账号主人的可信配对（默认拒绝）、真实版本的完整实时成员返回合同核验、活跃模型跨整个应用进程重启的自动恢复（本次只提供显式手动接管）、真实已装插件防外传及原伙伴能力验收、Mac 构建与实际本地只读/收发验收。向导仅能保存为 draft，普通自动文字发送需高级配置显式选择 automatic，仍按精确聊天允许范围生效。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
+仍需完成：跨账号主人的可信配对（默认拒绝）、其它版本/大型群的实时成员完整性核验、活跃模型跨整个应用进程重启的自动恢复（本次只提供显式手动接管）、真实已装插件防外传及原伙伴能力验收、Mac 完整客户端打包与实际收发验收。新 reader 的 Mac 实库只读已验收，不能扩大为真实伙伴或发送通过。向导仅能保存为 draft，普通自动文字发送需高级配置显式选择 automatic，仍按精确聊天允许范围生效。Linux 包不能冒充 Mac 包。没有 PR、部署或覆盖安装授权；现有正式实例及 profile 不动。
 
 
 ## Mac 最小接手要求
@@ -72,3 +72,11 @@ scripts/verify-dchat-manual-recovery.mjs 使用真实私有文件和独立 Node 
 使用同一 Fork 功能分支及其完整源码，不用 Linux deb 替代 Mac 包。工具链要求 Node >=22.12、pnpm 10.33.2、Git LFS、Xcode Command Line Tools 与本架构可用的 SQLCipher 4 CLI。沿仓库 environment-setup 和 desktop-development 准备依赖；不全局替换已有工具，不复制 Linux node_modules。打包走仓库 pnpm build / desktop forge 包装，签名、公证与真实本地接口必须在 Mac 独立记录。
 
 先运行定向单测和 scripts/verify-dchat-sqlcipher.mjs 的加密合成库验证，再用安全启动包装进入独立 --mock / --isolated-auth 沙箱。已有 Mac 本地库只读授权继续有效；本机接手需确认要使用的 D-Chat CLI、D-Chat 4.27.x 组件和 chat39 数据库根，成员目录只读验收还需主人选定一个明确目标聊天。本次远端 Linux 不读取任意真实联系人。密钥自动有预算地探测，不填写到 UI、命令参数、报告或 Git。保持正式 profile、账号、伙伴配置与 D-Chat 进程不变；本任务仍未授权真实发送或补丁。只读验收与真实伙伴执行须分别记录，不能用合成库通过代替。
+
+## 独立 Mac reader 验证
+
+scripts/verify-dchat-mac-readonly.mjs 可由 Desktop 已有 esbuild 打成独立 Node ESM，不新增第三方依赖或加载 Agent/发送模块。显式传入本机只读 CLI、SQLCipher、组件、数据库根和目标 ID；先通过官方 message latest --count 1 门禁，再核验新鲜账号与实时成员，随后运行 Cindy 新 SQLCipher reader 的基线、最新锚点及精确锚点读取。CLI 的 count 可能附带上下文行，门禁检查不把结果当成 reader 连续分页，不放宽 page 的输出上限。
+
+验证只输出数量、布尔值与脱敏错误码，个人 ID、资料、消息 key/正文和数据库密钥均不输出。数据库与 WAL 仅流式哈希比较，不复制；真实客户端持续运行时可能更新文件，观察不稳定不能声称字节不变，更不能停止现有客户端来制造稳定。只读由 -readonly、query_only 和既有私有路径检查约束；合成 SQLCipher 拒写测试继续保留。
+
+本轮 arm64 Mac 返回 50 条基线缓存消息、最新锚点 0 条、精确锚点 1 条，缓存异常处严格分页拒绝 DCHAT_HISTORY_GAP。已有账号在两人成员目录内。未发送消息、未启用连接或自动执行、未改正式 profile。完整 Mac 客户端依赖安装与打包尚未执行：当时可用约 8.1 GiB，已有 Linux 依赖树实测约 8.1 GiB，跨架构安装与打包需额外空间，不能将远端依赖搬到 Mac。

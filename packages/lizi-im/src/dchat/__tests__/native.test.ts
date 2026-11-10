@@ -82,13 +82,45 @@ describe('D-Chat production native boundaries', () => {
   });
 });
 
-// Unit: CLI static schema advertises members but does not promise complete JSON.
-// Unknown/partial responses must not turn a cached roster into execution authority.
-it('refuses unproved or paginated member directories', () => {
-  const data = { vchannel_id: '303', has_more: false, member_count: 2, members: [{ id: '101' }, { id: '202' }] };
+// Unit: a first cached window is context/baseline only, never continuity proof.
+// Real Mac has a sequence jump with intact predecessor links; anchored reads stay strict.
+it('separates a linked baseline window from strict anchored continuity', () => {
+  const raw = payload(); const first = row('m1', '9007199254740993.0', 'm0');
+  raw.messages[0]!.sequence = '9007199254740995'; raw.messages.push(first);
+  expect(decodeDchatPage(raw, '100', '300')).toMatchObject({ continuous: false, cursor: 'm2' });
+  raw.messages.pop(); expect(() => decodeDchatPage(raw, '100', '300', 'm1')).toThrow('DCHAT_HISTORY_GAP');
+  raw.messages.push({ ...first, sequence: '9007199254740995' });
+  expect(decodeDchatPage(raw, '100', '300')).toMatchObject({ continuous: false });
+  raw.messages[1]!.sequence = '9007199254740996';
+  expect(() => decodeDchatPage(raw, '100', '300')).toThrow('DCHAT_HISTORY_GAP');
+});
+
+// Unit regression: >32 static strings must not prevent the bounded decryption probes.
+it('ranks a bounded static pool before applying the 32 probe budget', () => {
+  const strings = Array.from({ length: 60 }, (_, i) => ('ordinary label ' + i).padEnd(28, ' '));
+  const candidate = 'Ab7Cd8Ef9Gh0Jk1Lm2Np3Qr4St5U'; strings.push(candidate);
+  const section = Buffer.from(strings.join(String.fromCharCode(0)) + String.fromCharCode(0));
+  const binary = Buffer.alloc(200 + section.length);
+  binary.writeUInt32LE(0xfeedfacf); binary.writeUInt32LE(0x0100000c, 4); binary.writeUInt32LE(1, 16); binary.writeUInt32LE(152, 20);
+  binary.writeUInt32LE(0x19, 32); binary.writeUInt32LE(152, 36); binary.writeUInt32LE(1, 96);
+  binary.write('__cstring', 104); binary.writeBigUInt64LE(BigInt(section.length), 144); binary.writeUInt32LE(200, 152); section.copy(binary, 200);
+  const values = dchatKeyCandidates(binary); expect(values).toHaveLength(32); expect(values[0]).toBe(candidate);
+});
+
+// Unit regression: the authorized stock Mac CLI returns detail.channel.member_count,
+// no has_more. The former invented shape rejected complete live directories.
+// Production decoder must accept that minimum and reject partial/conflicting rosters.
+it('accepts complete stock member directories and rejects unproved membership', () => {
+  const data = { vchannel_id: '303', channel_id: '909',
+    detail: { channel: { id: '909', member_count: 2 }, vchannel: { vchannel_id: '303', type: 'channel' } },
+    members: [{ id: '101' }, { id: '202' }] };
   expect(decodeDchatMembers(data, '303')).toEqual(['101', '202']);
-  for (const invalid of [{ ...data, has_more: true }, { ...data, has_more: undefined }, { ...data, member_count: 3 },
-    { ...data, vchannel_id: '404' }, { ...data, members: [{ id: '101' }, { id: '101' }] }]) {
+  for (const invalid of [{ ...data, has_more: true }, { ...data, detail: { ...data.detail, channel: { id: '909', member_count: 3 } } },
+    { ...data, vchannel_id: '404' }, { ...data, channel_id: '808' },
+    { ...data, detail: { ...data.detail, vchannel: { vchannel_id: '404', type: 'channel' } } },
+    { ...data, detail: { ...data.detail, vchannel: { vchannel_id: '303', type: 'p2p' } } },
+    { ...data, members: [{ id: '101' }, { id: '101' }] }, { ...data, detail: undefined },
+    { ...data, members: [{ id: '101' }, { id: 202 }] }]) {
     expect(() => decodeDchatMembers(invalid, '303')).toThrow('DCHAT_MEMBER_SCHEMA_UNVERIFIED');
   }
 });
